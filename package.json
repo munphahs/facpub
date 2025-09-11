@@ -1,0 +1,27 @@
+{
+  "name": "mun-faculty-pubs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "scrape:pubs": "node scripts/scrape_faculty_pubs.mjs --discipline \"Community Health and Humanities\" --years all --formats all --types all --out public/data/faculty_pubs.json",
+    "scrape:pubs:headful": "node scripts/scrape_faculty_pubs.mjs --discipline \"Community Health and Humanities\" --years all --formats all --types all --out public/data/faculty_pubs.json --headful",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "flatpickr": "^4.6.13",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^3.0.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-flatpickr": "^4.0.11",
+    "react-window": "^1.8.11",
+    "recharts": "^2.10.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "playwright": "^1.55.0",
+    "vite": "^7.1.3"
+  }
+}
