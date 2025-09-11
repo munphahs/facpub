@@ -1,8 +1,8 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
+// Replace `your-repo-name` with your actual repo name on GitHub
 export default defineConfig({
-  plugins: [react()],        // React plugin: JSX/TSX, Fast Refresh
-  base: "/",                 // app served from root (good for local dev)
-  server: { open: true }     // auto-open browser on npm run dev
-});
+  plugins: [react()],
+  base: '/facpub/',  
+})
