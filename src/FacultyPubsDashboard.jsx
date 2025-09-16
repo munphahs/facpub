@@ -1,9 +1,10 @@
-import React, { useEffect, useMemo, useState, useDeferredValue, useRef } from "react";
+import React, { Fragment, useEffect, useMemo, useState, useDeferredValue, useRef } from "react";
 import {
   ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Brush,
-  PieChart, Pie, Cell, LabelList,
-  ComposedChart, Scatter
+  LabelList,
+  ComposedChart, Scatter, Cell,
+  PieChart, Pie
 } from "recharts";
 import YearMonthPicker from "./YearMonthPicker";
 import { inferTopic } from "./topicRules";
@@ -11,21 +12,23 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
 /* ------------------------------ Constants ------------------------------ */
-const COMPACT_BAR_HEIGHT   = 250;
-const COMPACT_DONUT_HEIGHT = 170;
-const COMPACT_BAR_SIZE     = 10;
-
-const COLOR_GRID  = "#e5e7eb";
-const MONTHS      = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-const MONTH_COLORS = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#22C55E","#EAB308","#F97316","#06B6D4","#84CC16","#F43F5E"];
-const UNSPECIFIED = "Unspecified";
-const MIN_YEAR = 2003;
+const PANEL_H       = 300;
+const COLOR_GRID    = "#e5e7eb";
+const MONTHS        = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const MONTH_COLORS  = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#22C55E","#EAB308","#F97316","#06B6D4","#84CC16","#F43F5E"];
+const HEAT_COLORS   = ["#EEF2FF","#E0E7FF","#C7D2FE","#A5B4FC","#93C5FD","#60A5FA","#3B82F6","#1D4ED8","#1E40AF"];
+const UNSPECIFIED   = "Unspecified";
+const MIN_YEAR      = 2003;
 
 /* ------------------------------ Utils ------------------------------ */
 const isNum   = (n) => Number.isFinite(n);
 const shorten = (s = "", n = 22) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 const BASE    = (import.meta?.env?.BASE_URL ?? "/");
 const withBase = (p) => BASE + String(p || "").replace(/^\/+/, "");
+const squashSpaces = (s="") => String(s).replace(/\s+/g, " ").trim();
+const normalizeDashesQuotes = (s="") =>
+  s.replace(/[\u2010-\u2015]/g, "-").replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
+const cleanText = (s="") => squashSpaces(normalizeDashesQuotes(String(s)));
 
 async function tryFetchJson(relPath) {
   const url = withBase(relPath);
@@ -36,16 +39,16 @@ async function tryFetchJson(relPath) {
   } catch (e) { console.error("[tryFetchJson] Failed", e); return null; }
 }
 
-/* ---------- string normalizers ---------- */
-const squashSpaces = (s="") => String(s).replace(/\s+/g, " ").trim();
-const normalizeDashesQuotes = (s="") =>
-  s.replace(/[\u2010-\u2015]/g, "-").replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"');
-const cleanText = (s="") => squashSpaces(normalizeDashesQuotes(String(s)));
+function heatColor(v, vmax) {
+  if (!vmax || v <= 0) return HEAT_COLORS[0];
+  const t = Math.sqrt(v / vmax);
+  const idx = Math.min(HEAT_COLORS.length - 1, Math.max(1, Math.round(t * (HEAT_COLORS.length - 1))));
+  return HEAT_COLORS[idx];
+}
 
 /* ---------- parsing helpers ---------- */
 const _splitByConj = (s) =>
-  cleanText(s)
-    .replace(/\bet\s*al\.?$/i, "")
+  cleanText(s).replace(/\bet\s*al\.?$/i, "")
     .split(/;|,|\||\/|\s+and\s+|\s*&\s*|—|–|:|\s{2,}/i)
     .map(x => squashSpaces(x))
     .filter(Boolean);
@@ -55,6 +58,7 @@ const _nameFromObj = (o) => {
   const parts = [o.given || o.first, o.family || o.last].map(cleanText).filter(Boolean).join(" ");
   return cleanText(o.name || o.fullName || o.displayName || o.value || parts);
 };
+
 const _subjectFromObj = (o) =>
   !o || typeof o !== "object" ? "" : cleanText(o.subject || o.name || o.label || o.value || "");
 
@@ -65,53 +69,32 @@ const dedupeCI = (arr) => {
 };
 
 const collectAuthors = (r) => {
-  const candidates = [
-    r.authors, r.author, r.creators, r.creator, r.contributors, r.contributor,
-    r["dc.creator"], r["dc.contributor"], r.creatorNames, r.Author, r.Authors
-  ].filter(v => v != null);
-
+  const fields = [r.authors, r.author, r.creators, r.creator, r.contributors, r.contributor,
+    r["dc.creator"], r["dc.contributor"], r.creatorNames, r.Author, r.Authors].filter(v => v != null);
   const out = [];
-  for (const v of candidates) {
+  for (const v of fields) {
     if (typeof v === "string") out.push(..._splitByConj(v));
-    else if (Array.isArray(v)) {
-      for (const item of v) {
-        if (typeof item === "string") out.push(..._splitByConj(item));
-        else if (item && typeof item === "object") {
-          const n = _nameFromObj(item); if (n) out.push(..._splitByConj(n));
-        }
-      }
-    } else if (v && typeof v === "object") {
-      const n = _nameFromObj(v); if (n) out.push(..._splitByConj(n));
-    }
+    else if (Array.isArray(v)) for (const it of v)
+      out.push(..._splitByConj(typeof it === "string" ? it : _nameFromObj(it)));
+    else if (v && typeof v === "object") out.push(..._splitByConj(_nameFromObj(v)));
   }
   return dedupeCI(out.map(s => s.replace(/\s+/g, " ").trim()).filter(Boolean));
 };
 
 const normalizeSubject = (s) => cleanText(s).replace(/[.;,:]$/, "");
 const collectSubjects = (r) => {
-  const fields = [
-    r.subject, r.subjects, r["dc.subject"], r["dc.subjects"],
-    r.keywords, r.keyword, r.tags, r.tag, r.discipline, r.disciplines
-  ].filter(v => v != null);
-
+  const fields = [r.subject, r.subjects, r["dc.subject"], r["dc.subjects"],
+    r.keywords, r.keyword, r.tags, r.tag, r.discipline, r.disciplines].filter(v => v != null);
   const out = [];
   for (const v of fields) {
     if (typeof v === "string") out.push(..._splitByConj(v));
-    else if (Array.isArray(v)) {
-      for (const item of v) {
-        if (typeof item === "string") out.push(..._splitByConj(item));
-        else if (item && typeof item === "object") {
-          const s = _subjectFromObj(item); if (s) out.push(..._splitByConj(s));
-        }
-      }
-    } else if (v && typeof v === "object") {
-      const s = _subjectFromObj(v); if (s) out.push(..._splitByConj(s));
-    }
+    else if (Array.isArray(v)) for (const it of v)
+      out.push(..._splitByConj(typeof it === "string" ? it : _subjectFromObj(it)));
+    else if (v && typeof v === "object") out.push(..._splitByConj(_subjectFromObj(v)));
   }
   return dedupeCI(out.map(x => normalizeSubject(x)).filter(Boolean));
 };
 
-/* ---------- title/venue/author fixer ---------- */
 const looksLikeAuthorList = (s) => {
   const str = cleanText(s); if (!str) return false;
   const parts = str.split(/\s*,\s*/).filter(Boolean);
@@ -138,12 +121,10 @@ const TipCard = ({ title, count }) => (
     <div>{count} publications</div>
   </div>
 );
-
 const SubjectTooltip = ({ active, payload }) =>
   (active && payload?.length)
     ? <TipCard title={payload.at(-1)?.payload?.subject ?? ""} count={payload.at(-1)?.value ?? 0} />
     : null;
-
 const AuthorTooltip  = ({ active, payload }) =>
   (active && payload?.length)
     ? <TipCard title={payload.at(-1)?.payload?.author || ""} count={payload.at(-1)?.value ?? 0} />
@@ -153,7 +134,6 @@ const AuthorTooltip  = ({ active, payload }) =>
 /*                                MAIN                                    */
 /* ===================================================================== */
 export default function FacultyPubsDashboard() {
-  /* ------------------------------ State ------------------------------ */
   const [rows, setRows]       = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState("");
@@ -161,19 +141,19 @@ export default function FacultyPubsDashboard() {
   // filters
   const [q, setQ] = useState("");
   const dq = useDeferredValue(q.toLowerCase());
-  const [yearSel,  setYearSel]  = useState(null);  // exact year
+  const [yearSel,  setYearSel]  = useState(null);
   const [monthSel, setMonthSel] = useState(null);
   const [authorSel, setAuthorSel] = useState("");
   const [subjectSel, setSubjectSel] = useState("");
   const [topicSel, setTopicSel] = useState("");
 
-  // range via Brush (inclusive)
+  // year range via Brush (inclusive)
   const [yearRange, setYearRange] = useState(null);
+  const [brushIdx, setBrushIdx] = useState({ start: 0, end: 0 });
 
   // table paging
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 25;
-
   useEffect(() => { setPage(0); }, [dq, yearSel, monthSel, authorSel, subjectSel, topicSel, yearRange]);
 
   /* ------------------------------ Load ------------------------------ */
@@ -231,11 +211,7 @@ export default function FacultyPubsDashboard() {
     const query = dq.trim();
     return rows.filter(r => {
       const inExactYear = !yearSel || r.year === yearSel;
-
-      const inRange = !yearRange || (
-        isNum(r.year) && r.year >= yearRange.from && r.year <= yearRange.to
-      );
-
+      const inRange = !yearRange || (isNum(r.year) && r.year >= yearRange.from && r.year <= yearRange.to);
       const inMonth   = !monthSel   || r.month === monthSel;
       const inAuthor  = !authorSel  || (r.authors || []).includes(authorSel);
       const subs      = r.subjects?.length ? r.subjects : [UNSPECIFIED];
@@ -252,6 +228,23 @@ export default function FacultyPubsDashboard() {
     });
   }, [rows, dq, yearSel, yearRange, monthSel, authorSel, subjectSel, topicSel]);
 
+  // same as filtered but ignoring time (for Year axis completeness)
+  const filteredNoTime = useMemo(() => {
+    const query = dq.trim();
+    return rows.filter(r => {
+      const inAuthor  = !authorSel  || (r.authors || []).includes(authorSel);
+      const subs      = r.subjects?.length ? r.subjects : [UNSPECIFIED];
+      const inSubject = !subjectSel || subs.includes(subjectSel);
+      const inTopic   = !topicSel   || (r.topic || "Other") === topicSel;
+      const inQuery = !query
+        || r.lcTitle.includes(query)
+        || r.lcVenue.includes(query)
+        || r.lcSubjects.some(s => s.includes(query))
+        || r.lcAuthors.some(a => a.includes(query));
+      return inAuthor && inSubject && inTopic && inQuery;
+    });
+  }, [rows, dq, authorSel, subjectSel, topicSel]);
+
   /* ------------------------------ Paging ------------------------------ */
   const totalRows  = filtered.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
@@ -260,12 +253,10 @@ export default function FacultyPubsDashboard() {
   const tableRows  = filtered.slice(startIndex, endIndex);
 
   /* ------------------------------ Charts data ------------------------------ */
-  // Build year histogram from ALL rows so the brush shows the full extent
+  // Year bars reflect non-time filters; axis remains complete
   const byYear = useMemo(() => {
     const counts = new Map();
-    for (const r of rows) if (isNum(r.year)) counts.set(r.year, (counts.get(r.year) || 0) + 1);
-
-    // determine min/max with clamp at MIN_YEAR and with at least 2 ticks
+    for (const r of filteredNoTime) if (isNum(r.year)) counts.set(r.year, (counts.get(r.year) || 0) + 1);
     const years = [...counts.keys()];
     const minY = Math.max(MIN_YEAR, years.length ? Math.min(...years) : new Date().getFullYear() - 1);
     const maxY = years.length ? Math.max(...years) : new Date().getFullYear();
@@ -273,8 +264,40 @@ export default function FacultyPubsDashboard() {
     for (let y = minY; y <= maxY; y++) out.push({ year: y, count: counts.get(y) ?? 0 });
     if (out.length === 1) out.push({ year: out[0].year + 1, count: 0 });
     return out;
-  }, [rows]);
+  }, [filteredNoTime]);
 
+  // keep Brush handles in sync with current range / data
+  useEffect(() => {
+    if (!byYear.length) return;
+    const firstYear = yearRange?.from ?? byYear[0].year;
+    const lastYear  = yearRange?.to   ?? byYear[byYear.length - 1].year;
+    const siRaw = byYear.findIndex(d => d.year === firstYear);
+    const eiRaw = byYear.findIndex(d => d.year === lastYear);
+    setBrushIdx({ start: siRaw < 0 ? 0 : siRaw, end: eiRaw < 0 ? byYear.length - 1 : eiRaw });
+  }, [byYear, yearRange]);
+
+  // rows for heatmap (respect time selections)
+  const filteredForHeat = useMemo(() => {
+    let base = filteredNoTime;
+    if (yearSel != null) base = base.filter(r => r.year === yearSel);
+    else if (yearRange) base = base.filter(r => isNum(r.year) && r.year >= yearRange.from && r.year <= yearRange.to);
+    if (monthSel != null) base = base.filter(r => r.month === monthSel);
+    return base;
+  }, [filteredNoTime, yearSel, yearRange, monthSel]);
+
+  // heat counts
+  const heat = useMemo(() => {
+    const m = new Map(); let vmax = 0;
+    for (const r of filteredForHeat) {
+      if (!isNum(r.year) || !isNum(r.month)) continue;
+      const key = `${r.year}|${r.month}`;
+      const c = (m.get(key) || 0) + 1;
+      m.set(key, c); if (c > vmax) vmax = c;
+    }
+    return { get: (y, mo) => m.get(`${y}|${mo}`) || 0, vmax };
+  }, [filteredForHeat]);
+
+  // donut, subjects, topics, authors
   const byMonth = useMemo(() => {
     const base = Array.from({ length: 12 }, (_, i) => ({ m: i + 1, label: MONTHS[i], count: 0 }));
     for (const r of filtered) if (isNum(r.month)) base[r.month - 1].count += 1;
@@ -294,10 +317,7 @@ export default function FacultyPubsDashboard() {
       .sort((a, b) => b.count - a.count || a.subject.localeCompare(b.subject));
   }, [filtered]);
 
-  const bySubject = useMemo(
-    () => bySubjectRaw.filter(x => x.subject !== UNSPECIFIED).slice(0, 12),
-    [bySubjectRaw]
-  );
+  const bySubject = useMemo(() => bySubjectRaw.filter(x => x.subject !== UNSPECIFIED).slice(0, 12), [bySubjectRaw]);
 
   const byTopic = useMemo(() => {
     const map = new Map();
@@ -340,30 +360,20 @@ export default function FacultyPubsDashboard() {
     if (!captureRef.current) return;
     captureRef.current.classList.add("exporting");
     await new Promise(r => setTimeout(r, 250));
-
     const node = captureRef.current;
-    const canvas = await html2canvas(node, {
-      backgroundColor: "#ffffff",
-      scale: window.devicePixelRatio < 2 ? 2 : window.devicePixelRatio,
-      useCORS: true,
-      logging: false
-    });
-
+    const canvas = await html2canvas(node, { backgroundColor: "#ffffff", scale: window.devicePixelRatio < 2 ? 2 : window.devicePixelRatio, useCORS: true, logging: false });
     const imgData = canvas.toDataURL("image/png");
     const pdf = new jsPDF({ unit: "pt", format: "a4", compress: true });
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
     const imgW = pageW;
     const imgH = (canvas.height * imgW) / canvas.width;
-
-    if (imgH <= pageH) {
-      pdf.addImage(imgData, "PNG", 0, 0, imgW, imgH);
-    } else {
+    if (imgH <= pageH) pdf.addImage(imgData, "PNG", 0, 0, imgW, imgH);
+    else {
       let srcY = 0;
       const sliceHpx = Math.floor((canvas.width * pageH) / pageW);
       const tmp = document.createElement("canvas");
-      tmp.width = canvas.width;
-      tmp.height = sliceHpx;
+      tmp.width = canvas.width; tmp.height = sliceHpx;
       const ctx = tmp.getContext("2d");
       let first = true;
       while (srcY < canvas.height) {
@@ -372,32 +382,87 @@ export default function FacultyPubsDashboard() {
         const slice = tmp.toDataURL("image/png");
         if (!first) pdf.addPage();
         pdf.addImage(slice, "PNG", 0, 0, imgW, pageH);
-        first = false;
-        srcY += sliceHpx;
+        first = false; srcY += sliceHpx;
       }
     }
     captureRef.current.classList.remove("exporting");
     pdf.save("faculty-publications-dashboard.pdf");
   }
 
-  /* ------------------------------ Brush helpers ------------------------------ */
-  const brushDefaults = useMemo(() => {
-    if (!byYear.length) return { startIndex: 0, endIndex: 0 };
-    // If a range is active, place the thumbs to match it; else full extent
-    const firstYear = yearRange?.from ?? byYear[0].year;
-    const lastYear  = yearRange?.to   ?? byYear[byYear.length - 1].year;
-    const si = Math.max(0, byYear.findIndex(d => d.year === firstYear));
-    const ei = Math.max(0, byYear.findIndex(d => d.year === lastYear));
-    return {
-      startIndex: si === -1 ? 0 : si,
-      endIndex:   ei === -1 ? byYear.length - 1 : ei
-    };
-  }, [byYear, yearRange]);
+  /* ------------------------------ Heatmap panel ------------------------------ */
+  function HeatmapPanel() {
+    const yearsList = byYear.map(d => d.year);
+    if (!yearsList.length) return <div className="muted" style={{ padding: 8 }}>No month data.</div>;
+    const manyYears  = yearsList.length > 22;
+    const colW       = manyYears ? 24 : 30;
+    const rowH       = manyYears ? 22 : 26;
+    const showCounts = !manyYears && heat.vmax >= 6;
+    const headFmt    = (y) => (yearsList.length <= 16 ? String(y) : `’${String(y).slice(2)}`);
+
+    return (
+      <div className="heatmap-scroll" style={{ height: PANEL_H - 56 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: `60px repeat(${yearsList.length}, ${colW}px)`,
+            gridAutoRows: `${rowH}px`,
+            gap: 6,
+            alignItems: "center",
+            padding: 8,
+            paddingBottom: 6,
+          }}
+        >
+          <div className="heat-sticky-top" style={{ fontSize: 11, color: "#6b7280" }} />
+          {yearsList.map((y) => (
+            <div key={`yh-${y}`} className="mono heat-sticky-top" style={{ fontSize: 11, textAlign: "center", color: "#6b7280", background:"#fff" }} title={String(y)}>
+              {headFmt(y)}
+            </div>
+          ))}
+
+          {MONTHS.map((mLabel, idx) => {
+            const m = idx + 1;
+            return (
+              <Fragment key={`row-${m}`}>
+                <div className="heat-sticky-left" style={{ fontSize: 12, color: "#0f172a", paddingRight: 4, background:"#fff" }}>
+                  {mLabel}
+                </div>
+                {yearsList.map((y) => {
+                  const v = heat.get(y, m);
+                  const bg = heatColor(v, heat.vmax);
+                  const selected = yearSel === y && monthSel === m;
+                  return (
+                    <button
+                      key={`cell-${y}-${m}`}
+                      title={`${mLabel} ${y}: ${v} publications`}
+                      onClick={() => { setYearSel(y); setMonthSel(m); setYearRange(null); }}
+                      className={`heat-cell${selected ? " selected" : ""}`}
+                      style={{ width: colW, height: rowH, background: bg, boxShadow: "inset 0 -1px 0 rgba(255,255,255,.35), 0 0 0 1px rgba(17,24,39,.04)" }}
+                    >
+                      {showCounts && v > 0 && <span style={{ fontSize:10, fontWeight:600 }}>{v}</span>}
+                    </button>
+                  );
+                })}
+              </Fragment>
+            );
+          })}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 8px 8px 8px" }}>
+          <span style={{ fontSize: 11, color: "#6b7280" }}>Low</span>
+          <div style={{ display: "grid", gridTemplateColumns: `repeat(${HEAT_COLORS.length},1fr)`, gap: 2, flex: 1 }}>
+            {HEAT_COLORS.map((c, i) => <div key={i} style={{ height: 8, background: c, borderRadius: 2 }} />)}
+          </div>
+          <span style={{ fontSize: 11, color: "#6b7280" }}>High</span>
+          <span style={{ fontSize: 11, color: "#6b7280", marginLeft: 8 }}>max {heat.vmax || 0}</span>
+        </div>
+      </div>
+    );
+  }
 
   /* ------------------------------ UI ------------------------------ */
   return (
-    <div ref={captureRef} className="wrap pretty" style={{ maxWidth: "1500px", margin: "12px auto", padding: "0 8px" }}>
-      {/* Header/KPIs */}
+    <div ref={captureRef} className="wrap pretty" style={{ margin: "12px auto", padding: "0 8px" }}>
+      {/* Header */}
       <div className="hero compact">
         <div className="hero-left" style={{ display:"flex", alignItems:"center", gap:20 }}>
           <img src={withBase("mun-logo.png")} alt="Logo" className="logo" />
@@ -408,7 +473,6 @@ export default function FacultyPubsDashboard() {
             <h1 style={{ margin: 0, fontSize: 25, opacity: .8 }}>Faculty Publication Dashboard</h1>
           </div>
         </div>
-
         <div className="kpis-and-actions" style={{ display:"flex", alignItems:"center", gap:12 }}>
           <button className="btn export" onClick={handleExportPDF} aria-label="Download dashboard as PDF">⬇︎ Download PDF</button>
           <div className="kpis">
@@ -420,276 +484,130 @@ export default function FacultyPubsDashboard() {
         </div>
       </div>
 
-      {/* 2-column layout: charts left, table right */}
-      <div className="two-col">
-        {/* LEFT: filters + charts */}
-        <div className="left-stack">
-          {/* Combined filter row */}
-          <div className="filters-row card">
-            <div className="filter-combined">
-              {/* Search */}
-              <div className="input-wrap">
-                <span style={{opacity:.6}}>🔎</span>
-                <input
-                  className="input"
-                  placeholder="Title, author, subject…"
-                  value={q}
-                  onChange={(e)=>setQ(e.target.value)}
-                  aria-label="Search publications"
-                />
-              </div>
-              {/* Year & Month */}
-              <div className="ymp-compact">
-                <YearMonthPicker
-                  valueYear={yearSel}
-                  valueMonth={monthSel}
-                  onChange={(y, m) => {
-                    setYearSel(y);
-                    setMonthSel(m);
-                    setYearRange(null); // picking an exact date clears range
+      {/* Filters */}
+      <div className="filters-row card" style={{ marginBottom: 12 }}>
+        <div className="filter-combined">
+          <div className="input-wrap">
+            <span style={{opacity:.6}}>🔎</span>
+            <input className="input" placeholder="Title, author, subject…" value={q} onChange={(e)=>setQ(e.target.value)} aria-label="Search publications" />
+          </div>
+          {/* <div className="ymp-compact">
+            <YearMonthPicker
+              valueYear={yearSel}
+              valueMonth={monthSel}
+              onChange={(y, m) => { setYearSel(y); setMonthSel(m); setYearRange(null); }}
+              minYear={MIN_YEAR}
+              maxYear={new Date().getFullYear()}
+            />
+          </div> */}
+        </div>
+
+        {(yearSel || monthSel || authorSel || subjectSel || topicSel || dq || yearRange) && (
+          <div className="filter-item chips-block">
+            <div className="hd small">Active Filters</div>
+            <div className="chips tight">
+              {yearSel   && <button className="chip" onClick={()=> setYearSel(null)}>Year: {yearSel} ✕</button>}
+              {yearRange && <button className="chip" onClick={()=> setYearRange(null)}>Years: {yearRange.from}–{yearRange.to} ✕</button>}
+              {monthSel  && <button className="chip" onClick={()=> setMonthSel(null)}>Month: {MONTHS[monthSel-1]} ✕</button>}
+              {authorSel && <button className="chip" onClick={()=> setAuthorSel("")}>Author: {authorSel} ✕</button>}
+              {subjectSel&& <button className="chip" onClick={()=> setSubjectSel("")}>Subject: {shorten(subjectSel,20)} ✕</button>}
+              {topicSel  && <button className="chip" onClick={()=> setTopicSel("")}>Topic: {shorten(topicSel,20)} ✕</button>}
+              {dq && <button className="chip" onClick={()=> setQ("")}>Search ✕</button>}
+              <button className="chip" onClick={()=>{
+                setYearSel(null); setYearRange(null); setMonthSel(null);
+                setAuthorSel(""); setSubjectSel(""); setTopicSel(""); setQ("");
+              }}>Clear all ✕</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ============ ROW A: Year bars + Donut + Table ============ */}
+      <div className="rowA"
+        style={{ display: "grid", gridTemplateColumns: "3fr 2fr 7fr", gap: 12, alignItems: "stretch", marginBottom: 12 }}>
+        {/* Year bars */}
+        <div className="card chart-card year-card" style={{ height: PANEL_H }}>
+          <h3 className="tight">Publications</h3>
+          <ResponsiveContainer width="100%" height={PANEL_H - 46}>
+            <BarChart data={byYear} margin={{ top: 4, right: 8, left: 6, bottom: 6 }} barSize={10} barCategoryGap={12}>
+              <defs>
+                <linearGradient id="yearBar" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#67d1ff" /><stop offset="100%" stopColor="#6d5cf4" />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 6" stroke={COLOR_GRID} />
+              {/* categorical axis → wider click targets */}
+              <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#6b7280" }} tickMargin={6} axisLine={{ stroke: "#d1d5db" }} tickLine={false} interval="preserveStartEnd" />
+              <YAxis width={28} allowDecimals={false} tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={{ stroke: "#d1d5db" }} tickLine={false} />
+              <Tooltip cursor={{ fill: "rgba(99,102,241,0.06)" }} formatter={(v) => [`${v} publications`, "Year"]} labelFormatter={(y) => `Year ${y}`} />
+              <Bar dataKey="count" name="Publications" radius={[4,4,0,0]} isAnimationActive={false}>
+                {byYear.map((d, i) => (
+                  <Cell key={i}
+                        fill={yearSel === d.year ? "#7c3aed" : "url(#yearBar)"}
+                        style={{ cursor: "pointer" }}
+                        onClick={() => { const y = Number(d?.year); if (isNum(y)) { setYearSel(prev => (prev === y ? null : y)); setYearRange(null); }}} />
+                ))}
+              </Bar>
+              {byYear.length > 2 && (
+                <Brush
+                  dataKey="year"
+                  height={36}              // bigger = easier to grab
+                  travellerWidth={16}
+                  stroke="#9ca3af"
+                  fill="#eef2ff"
+                  startIndex={brushIdx.start}
+                  endIndex={brushIdx.end}
+                  onChange={(rng) => {
+                    if (!rng) return;
+                    const si = Math.max(0, Math.min(byYear.length - 1, rng.startIndex ?? 0));
+                    const ei = Math.max(0, Math.min(byYear.length - 1, rng.endIndex   ?? byYear.length - 1));
+                    const from = byYear[Math.min(si, ei)]?.year;
+                    const to   = byYear[Math.max(si, ei)]?.year;
+                    setBrushIdx({ start: si, end: ei });
+                    if (isNum(from) && isNum(to)) { setYearRange({ from, to }); setYearSel(null); }
                   }}
-                  minYear={MIN_YEAR}
-                  maxYear={new Date().getFullYear()}
                 />
-              </div>
-            </div>
-
-            {(yearSel || monthSel || authorSel || subjectSel || topicSel || dq || yearRange) && (
-              <div className="filter-item chips-block">
-                <div className="hd small">Active Filters</div>
-                <div className="chips tight">
-                  {yearSel   && <button className="chip" onClick={()=> setYearSel(null)}>Year: {yearSel} ✕</button>}
-                  {yearRange && (
-                    <button className="chip" onClick={()=> setYearRange(null)}>
-                      Years: {yearRange.from}–{yearRange.to} ✕
-                    </button>
-                  )}
-                  {monthSel  && <button className="chip" onClick={()=> setMonthSel(null)}>Month: {MONTHS[monthSel-1]} ✕</button>}
-                  {authorSel && <button className="chip" onClick={()=> setAuthorSel("")}>Author: {authorSel} ✕</button>}
-                  {subjectSel&& <button className="chip" onClick={()=> setSubjectSel("")}>Subject: {shorten(subjectSel,20)} ✕</button>}
-                  {topicSel  && <button className="chip" onClick={()=> setTopicSel("")}>Topic: {shorten(topicSel,20)} ✕</button>}
-                  {dq && <button className="chip" onClick={()=> setQ("")}>Search ✕</button>}
-                  <button className="chip" onClick={()=>{
-                    setYearSel(null); setYearRange(null); setMonthSel(null);
-                    setAuthorSel(""); setSubjectSel(""); setTopicSel(""); setQ("");
-                  }}>Clear all ✕</button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Row 1: Year + Month */}
-          <div className="grid-row top">
-            <div className="card chart-card year-card">
-              <h3 className="tight">Publications</h3>
-              <ResponsiveContainer width="100%" height={COMPACT_BAR_HEIGHT}>
-                <BarChart data={byYear} margin={{ top: 2, right: 8, left: 4, bottom: 6 }} barSize={COMPACT_BAR_SIZE} barCategoryGap={10}>
-                  <defs>
-                    <linearGradient id="yearBar" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#5cc5f6" />
-                      <stop offset="100%" stopColor="#7044f5" />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="2 4" stroke={COLOR_GRID} />
-                  <XAxis dataKey="year" type="number" domain={["dataMin", "dataMax"]} tickMargin={4} />
-                  <YAxis allowDecimals={false} />
-                  <Tooltip />
-                  <Bar
-                    dataKey="count"
-                    name="Publications"
-                    radius={[3,3,0,0]}
-                    isAnimationActive={false}
-                    cursor="pointer"
-                    onClick={({ payload }) => {
-                      const y = Number(payload?.year);
-                      if (isNum(y)) {
-                        setYearSel(prev => (prev === y ? null : y));
-                        setYearRange(null); // single year overrides range
-                      }
-                    }}
-                  >
-                    {byYear.map((d, i) => (
-                      <Cell key={`y-${i}`} fill={yearSel === d.year ? "#7c3aed" : "url(#yearBar)"} />
-                    ))}
-                  </Bar>
-
-                  {byYear.length > 2 && (
-                    <Brush
-                      dataKey="year"
-                      height={20}
-                      travellerWidth={8}
-                      stroke="#9ca3af"
-                      fill="#eef2f7"
-                      startIndex={brushDefaults.startIndex}
-                      endIndex={brushDefaults.endIndex}
-                      onChange={(rng) => {
-                        if (!rng) return;
-                        const si = Math.max(0, Math.min(byYear.length - 1, rng.startIndex ?? 0));
-                        const ei = Math.max(0, Math.min(byYear.length - 1, rng.endIndex   ?? byYear.length - 1));
-                        const from = byYear[Math.min(si, ei)]?.year;
-                        const to   = byYear[Math.max(si, ei)]?.year;
-                        if (isNum(from) && isNum(to)) {
-                          setYearRange({ from, to });
-                          setYearSel(null);
-                        }
-                      }}
-                    />
-                  )}
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="card chart-card donut-card">
-              <h3 className="tight">By Month</h3>
-              <div className="donut-wrap">
-                <ResponsiveContainer width="80%" height={COMPACT_DONUT_HEIGHT}>
-                  <PieChart>
-                    <Pie
-                      data={byMonth}
-                      dataKey="count"
-                      nameKey="label"
-                      innerRadius={52}
-                      outerRadius={78}
-                      paddingAngle={2}
-                      labelLine={false}
-                      label={false}
-                      onClick={(e) => {
-                        const m = Number(e?.payload?.m);
-                        if (m) setMonthSel(prev => (prev === m ? null : m));
-                      }}
-                    >
-                      {byMonth.map((_, i) => (
-                        <Cell
-                          key={`mcell-${i}`}
-                          fill={MONTH_COLORS[i % MONTH_COLORS.length]}
-                          stroke={monthSel === i + 1 ? "#111827" : undefined}
-                          strokeWidth={monthSel === i + 1 ? 1.5 : 0}
-                          cursor="pointer"
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(v, _n, ctx) => [`${v} pubs`, ctx?.payload?.label ?? "Month"]} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-
-          {/* Row 2: Subject/Topic + Authors */}
-          <div className="grid-row">
-            <div className="card chart-card subject-card">
-              <h3 className="tight">{showTopicsInstead ? "Subject Area" : "Publication by Subject"}</h3>
-              {showTopicsInstead ? (
-                !byTopic.length ? (
-                  <div className="muted" style={{ padding: 10 }}>No topic data.</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height={COMPACT_BAR_HEIGHT}>
-                    <BarChart data={byTopic} layout="vertical" barSize={8} margin={{ top: 2, right: 12, bottom: 2, left: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={COLOR_GRID} />
-                      <XAxis type="number" allowDecimals={false} />
-                      <YAxis type="category" dataKey="topic" width={0} tick={false} axisLine={false} tickLine={false} />
-                      <Tooltip />
-                      <defs>
-                        <linearGradient id="topicFill" x1="0" y1="0" x2="1" y2="0">
-                          <stop offset="0%"  stopColor="#6eace6" />
-                          <stop offset="100%" stopColor="#84d81d" />
-                        </linearGradient>
-                      </defs>
-                      <Bar
-                        dataKey="count"
-                        name="Publications"
-                        fill="url(#topicFill)"
-                        radius={[0,3,3,0]}
-                        isAnimationActive={false}
-                        cursor="pointer"
-                        onClick={({ payload }) => {
-                          const t = payload?.topic;
-                          if (t) setTopicSel(prev => (prev === t ? "" : t));
-                        }}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )
-              ) : (
-                !bySubject.length ? (
-                  <div className="muted" style={{ padding: 8 }}>No subject data.</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height={COMPACT_BAR_HEIGHT}>
-                    <BarChart data={bySubject} layout="vertical" barSize={12} margin={{ top: 2, right: 8, bottom: 2, left: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={COLOR_GRID} />
-                      <XAxis type="number" allowDecimals={false} />
-                      <YAxis type="category" dataKey="subject" width={0} tick={false} axisLine={false} tickLine={false} />
-                      <Tooltip content={<SubjectTooltip />} />
-                      <defs>
-                        <linearGradient id="subjectFill" x1="0" y1="0" x2="1" y2="0">
-                          <stop offset="0%"  stopColor="#7e95e3" />
-                          <stop offset="100%" stopColor="#1d4ed8" />
-                        </linearGradient>
-                      </defs>
-                      <Bar
-                        dataKey="count"
-                        name="Publications"
-                        fill="url(#subjectFill)"
-                        radius={[0,3,3,0]}
-                        isAnimationActive={false}
-                        cursor="pointer"
-                        onClick={({ payload }) => {
-                          const s = payload?.subject;
-                          if (s) setSubjectSel(prev => (prev === s ? "" : s));
-                        }}
-                      >
-                        <LabelList dataKey="count" position="right" offset={6} style={{ pointerEvents: "none" }} />
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                )
               )}
-            </div>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
 
-            <div className="card chart-card authors-card">
-              <h3 className="tight">Top Authors</h3>
-              {!topAuthors.length ? (
-                <div className="muted" style={{ padding: 8 }}>No author data.</div>
-              ) : (
-                <ResponsiveContainer width="100%" height={COMPACT_BAR_HEIGHT}>
-                  <ComposedChart data={topAuthors} layout="vertical" margin={{ top: 2, right: 25, bottom: 2, left: 2 }}>
-                    <CartesianGrid strokeDasharray="4 3" stroke={COLOR_GRID} />
-                    <XAxis type="number" allowDecimals={false} />
-                    <YAxis type="category" dataKey="author" width={220} tick={{ fontSize: 11 }} />
-                    <Tooltip content={<AuthorTooltip />} />
-                    <Bar
-                      dataKey="count"
-                      name="Publications"
-                      fill="#840692"
-                      barSize={8}
-                      radius={[0,2,2,0]}
-                      isAnimationActive={false}
-                      cursor="pointer"
-                      onClick={({ payload }) => {
-                        const a = payload?.author;
-                        if (a) setAuthorSel(prev => (prev === a ? "" : a));
-                      }}
-                    />
-                    <Scatter dataKey="count" isAnimationActive={false} shape={(p)=>(
-                      <g><circle cx={p.cx} cy={p.cy} r={5} /><circle cx={p.cx} cy={p.cy} r={5} fill="none" stroke="white" strokeWidth={1.2} /></g>
-                    )}>
-                      <LabelList dataKey="count" position="right" offset={6} style={{ pointerEvents: "none" }} />
-                    </Scatter>
-                  </ComposedChart>
-                </ResponsiveContainer>
-              )}
-            </div>
+        {/* Donut by Month */}
+        <div className="card chart-card donut-card" style={{ height: PANEL_H }}>
+          <h3 className="tight">By Month</h3>
+          <div className="donut-wrap" style={{ height: PANEL_H - 46, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <ResponsiveContainer width="95%" height="95%">
+              <PieChart>
+                <Pie
+                  data={byMonth}
+                  dataKey="count"
+                  nameKey="label"
+                  innerRadius="58%"
+                  outerRadius="78%"
+                  paddingAngle={1.5}
+                  stroke="#ffffff"
+                  strokeWidth={1}
+                  onClick={(e) => { const m = Number(e?.payload?.m); if (m) setMonthSel(prev => (prev === m ? null : m)); }}
+                >
+                  {byMonth.map((_, i) => (
+                    <Cell key={i} fill={MONTH_COLORS[i % MONTH_COLORS.length]} opacity={monthSel && monthSel !== i+1 ? 0.45 : 1} />
+                  ))}
+                </Pie>
+                <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fontSize="12" fill="#374151">
+                  {monthSel ? MONTHS[monthSel-1] : "All months"}
+                </text>
+                <Tooltip formatter={(v, _n, ctx) => [`${v} publications`, ctx?.payload?.label || "Month"]}/>
+              </PieChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
-        {/* RIGHT: scrollable table */}
-        <div className="right-table card">
+        {/* Table */}
+        <div className="right-table card" style={{ height: PANEL_H }}>
           <div className="table-header">
             <h3 className="tight">List of Publications</h3>
             <div className="pager">
-              <span className="count">
-                {totalRows ? `${startIndex + 1}–${endIndex} of ${totalRows}` : "0 of 0"}
-              </span>
+              <span className="count">{totalRows ? `${startIndex + 1}–${endIndex} of ${totalRows}` : "0 of 0"}</span>
               <div className="pager-buttons">
                 <button className="btn pager-btn" onClick={() => setPage(0)} disabled={page === 0} title="First">« First</button>
                 <button className="btn pager-btn" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} title="Previous">‹ Prev</button>
@@ -698,8 +616,7 @@ export default function FacultyPubsDashboard() {
               </div>
             </div>
           </div>
-
-          <div className="table-scroll">
+          <div className="table-scroll" style={{ height: PANEL_H - 58 }}>
             <table className="table pubs compact sticky">
               <colgroup>
                 <col style={{ width: 110 }} />
@@ -708,12 +625,7 @@ export default function FacultyPubsDashboard() {
                 <col style={{ width: 80 }} />
               </colgroup>
               <thead>
-                <tr>
-                  <th>Year</th>
-                  <th>Author(s)</th>
-                  <th>Publication Title</th>
-                  <th>Link</th>
-                </tr>
+                <tr><th>Year</th><th>Author(s)</th><th>Publication Title</th><th>Link</th></tr>
               </thead>
               <tbody>
                 {tableRows.map((d, i) => {
@@ -732,6 +644,105 @@ export default function FacultyPubsDashboard() {
               </tbody>
             </table>
           </div>
+        </div>
+      </div>
+
+      {/* ============ ROW B: Subject + Authors + Heatmap ============ */}
+      <div className="rowB"
+        style={{ display: "grid", gridTemplateColumns: "4fr 5fr 7fr", gap: 12, alignItems: "stretch", marginBottom: 12 }}>
+        {/* Subject / Topic */}
+        <div className="card chart-card subject-card" style={{ height: PANEL_H }}>
+          <h3 className="tight">{showTopicsInstead ? "Subject Area" : "Publication by Subject"}</h3>
+          {showTopicsInstead ? (
+            !byTopic.length ? (
+              <div className="muted" style={{ padding: 10 }}>No topic data.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={PANEL_H - 46}>
+                <BarChart data={byTopic} layout="vertical" barSize={8} margin={{ top: 2, right: 12, bottom: 2, left: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={COLOR_GRID} />
+                  <XAxis type="number" allowDecimals={false} />
+                  <YAxis type="category" dataKey="topic" width={0} tick={false} axisLine={false} tickLine={false} />
+                  <Tooltip />
+                  <defs>
+                    <linearGradient id="topicFill" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%"  stopColor="#6eace6" />
+                      <stop offset="100%" stopColor="#84d81d" />
+                    </linearGradient>
+                  </defs>
+                  <Bar dataKey="count" name="Publications" fill="url(#topicFill)" radius={[0,3,3,0]} isAnimationActive={false}
+                       cursor="pointer" onClick={({ payload }) => { const t = payload?.topic; if (t) setTopicSel(prev => (prev === t ? "" : t)); }} />
+                </BarChart>
+              </ResponsiveContainer>
+            )
+          ) : (
+            !bySubject.length ? (
+              <div className="muted" style={{ padding: 8 }}>No subject data.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={PANEL_H - 46}>
+                <ComposedChart data={bySubject} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
+                  <CartesianGrid strokeDasharray="3 6" stroke={COLOR_GRID} />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill:"#6b7280" }} />
+                  <YAxis type="category" dataKey="subject" width={240} tick={{ fontSize: 11 }}
+                         tickFormatter={(s) => (s.length > 28 ? s.slice(0,26) + "…" : s)} />
+                  <Tooltip content={<SubjectTooltip/>} />
+                  <Bar dataKey="count" barSize={6} radius={[0,3,3,0]} fill="#e5e7eb" />
+                  <Bar dataKey="count" barSize={18} radius={[0,6,6,0]} isAnimationActive={false}
+                       onClick={({ payload }) => setSubjectSel(prev => prev === payload.subject ? "" : payload.subject)}>
+                    {bySubject.map((d, i) => <Cell key={i} fill={subjectSel === d.subject ? "#7c3aed" : "url(#topicFill)"} />)}
+                  </Bar>
+                  <defs>
+                    <linearGradient id="topicFill" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%"  stopColor="#6eace6"/><stop offset="100%" stopColor="#84d81d"/>
+                    </linearGradient>
+                  </defs>
+                </ComposedChart>
+              </ResponsiveContainer>
+            )
+          )}
+        </div>
+
+        {/* Top Authors */}
+        <div className="card chart-card authors-card" style={{ height: PANEL_H }}>
+          <h3 className="tight">Top Authors</h3>
+          {!topAuthors.length ? (
+            <div className="muted" style={{ padding: 8 }}>No author data.</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={PANEL_H - 46}>
+              <ComposedChart data={topAuthors} layout="vertical" margin={{ top: 4, right: 56, bottom: 0, left: 8 }}>
+                <CartesianGrid strokeDasharray="3 6" stroke={COLOR_GRID} />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill:"#6b7280" }} />
+                <YAxis type="category" dataKey="author" width={120} tick={{ fontSize: 11 }}
+                       tickFormatter={(s)=> (s.length>28? s.slice(0,26)+"…" : s)} />
+                <Tooltip content={<AuthorTooltip />} />
+                <Bar dataKey="count" barSize={4} radius={[0,2,2,0]} fill="#e5e7eb" />
+                <Scatter dataKey="count" isAnimationActive={false}
+                  shape={(p) => {
+                    const selected = authorSel === p?.payload?.author;
+                    const r = selected ? 7 : 5;
+                    return (
+                      <g onClick={()=>{
+                          const a=p?.payload?.author; if(a) setAuthorSel(prev=>prev===a?"":a);
+                        }}
+                        style={{ cursor:"pointer" }}
+                      >
+                        <circle cx={p.cx} cy={p.cy} r={r} fill="#7c3aed" />
+                        <circle cx={p.cx} cy={p.cy} r={r} fill="none" stroke="#fff" strokeWidth={1.4}/>
+                      </g>
+                    );
+                  }}
+                >
+                  <LabelList dataKey="count" position="right" offset={8} formatter={(v)=>String(v)}
+                    style={{ fontSize: 11, fill:"#111827", pointerEvents:"none" }} />
+                </Scatter>
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        {/* Heatmap */}
+        <div className="card heatmap-card" style={{ height: PANEL_H }}>
+          <h3 className="tight">Year × Month</h3>
+          <HeatmapPanel />
         </div>
       </div>
 
