@@ -20,6 +20,82 @@ const HEAT_COLORS   = ["#EEF2FF","#E0E7FF","#C7D2FE","#A5B4FC","#93C5FD","#60A5F
 const UNSPECIFIED   = "Unspecified";
 const MIN_YEAR      = 2003;
 
+/* ------------------------------ Month parsing helpers ------------------------------ */
+const MONTH_NAME_TO_NUM = {
+  jan:1, january:1, feb:2, february:2, mar:3, march:3, apr:4, april:4, may:5,
+  jun:6, june:6, jul:7, july:7, aug:8, august:8, sep:9, sept:9, september:9,
+  oct:10, october:10, nov:11, november:11, dec:12, december:12,
+};
+
+function coerceInt(n, lo, hi) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return null;
+  if (lo != null && v < lo) return null;
+  if (hi != null && v > hi) return null;
+  return Math.trunc(v);
+}
+
+function gatherDateCandidates(rec) {
+  const out = [];
+  const pushVal = (val, key="") => {
+    if (val == null) return;
+    if (typeof val === "string" || typeof val === "number") {
+      if (!key || /(date|issued|publish|created|updated|cover)/i.test(key)) out.push(String(val));
+    } else if (Array.isArray(val)) {
+      for (const it of val) pushVal(it, key);
+    } else if (typeof val === "object") {
+      if (val["date-parts"] && Array.isArray(val["date-parts"]) && val["date-parts"][0]) {
+        const dp = val["date-parts"][0];
+        const y = dp[0], m = dp[1], d = dp[2];
+        out.push([y, m, d].filter(Boolean).join("-"));
+      }
+      const y = val.year ?? val.Year ?? val.YYYY;
+      const mo = val.month ?? val.Month ?? val.MM;
+      if (y || mo) out.push(`${y ?? ""}-${mo ?? ""}`);
+      for (const [k, v] of Object.entries(val)) pushVal(v, k);
+    }
+  };
+  for (const [k, v] of Object.entries(rec)) pushVal(v, k);
+
+  const extraKeys = [
+    "date","Date","published","issued","created","updated","coverDate",
+    "dc.date","dc.date.issued","dc.date.created","dc.date.available",
+    "publicationDate","Publication Date","Date Published"
+  ];
+  for (const k of extraKeys) if (rec[k] != null) out.push(String(rec[k]));
+
+  const explicitMonth = rec.month ?? rec.Month ?? rec["dc.date.issued.month"];
+  const explicitYear  = rec.year  ?? rec.Year  ?? rec["dc.date.issued.year"];
+  if (explicitMonth != null || explicitYear != null) out.push(`${explicitYear ?? ""}-${explicitMonth ?? ""}`);
+
+  return Array.from(new Set(out));
+}
+
+function parseYearMonthFromAny(rec) {
+  const candidates = gatherDateCandidates(rec).map(s => cleanText(String(s)).toLowerCase());
+
+  for (const s of candidates) {
+    let m = s.match(/\b(20\d{2}|19\d{2})[\/\-\. ](\d{1,2})(?:[\/\-\. ]\d{1,2})?\b/);
+    if (m) return { year: +m[1], month: Math.max(1, Math.min(12, +m[2])) };
+
+    m = s.match(/\b(20\d{2}|19\d{2})\s*[-\/]?\s*(0?[1-9]|1[0-2])\b/);
+    if (m) return { year: +m[1], month: +m[2] };
+
+    m = s.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(20\d{2}|19\d{2})\b/);
+    if (m) return { year: +m[2], month: MONTH_NAME_TO_NUM[m[1]] || null };
+
+    m = s.match(/\b(20\d{2}|19\d{2})\s*[-\/ ]\s*(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/);
+    if (m) return { year: +m[1], month: MONTH_NAME_TO_NUM[m[2]] || null };
+
+    m = s.match(/\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b/);
+    if (m) return { year: null, month: MONTH_NAME_TO_NUM[m[1]] || null };
+
+    m = s.match(/\b(20\d{2}|19\d{2})\b/);
+    if (m) return { year: +m[1], month: null };
+  }
+  return { year: null, month: null };
+}
+
 /* ------------------------------ Utils ------------------------------ */
 const isNum   = (n) => Number.isFinite(n);
 const shorten = (s = "", n = 22) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
@@ -46,7 +122,7 @@ function heatColor(v, vmax) {
   return HEAT_COLORS[idx];
 }
 
-/* ---------- parsing helpers ---------- */
+/* ------------------------- Title/Author & Subject helpers ------------------------- */
 const _splitByConj = (s) =>
   cleanText(s).replace(/\bet\s*al\.?$/i, "")
     .split(/;|,|\||\/|\s+and\s+|\s*&\s*|—|–|:|\s{2,}/i)
@@ -95,7 +171,7 @@ const collectSubjects = (r) => {
   return dedupeCI(out.map(x => normalizeSubject(x)).filter(Boolean));
 };
 
-const looksLikeAuthorList = (s) => {
+const looksLikeAuthorList = (s = "") => {
   const str = cleanText(s); if (!str) return false;
   const parts = str.split(/\s*,\s*/).filter(Boolean);
   if (parts.length < 2) return false;
@@ -106,12 +182,81 @@ const looksLikeAuthorList = (s) => {
 
 function fixTitleAndAuthors(rawTitle = "", rawVenue = "", authors = []) {
   let title = cleanText(rawTitle), venue = cleanText(rawVenue), outAuthors = [...authors];
-  const venueLooksLikeTitle = venue.length > 12 && /[a-z]{3,}/.test(venue);
   if ((!outAuthors.length) && looksLikeAuthorList(title)) {
     outAuthors = _splitByConj(title);
-    if (venueLooksLikeTitle) { title = venue; venue = ""; }
+    if (venue) { title = venue; venue = ""; }
   }
   return { title, venue, authors: outAuthors };
+}
+
+/* ----------------------------- DOI helpers + cache ----------------------------- */
+const DOI_RE = /(10\.\d{4,9}\/[^\s"'>]+)/i;
+
+const extractDoi = (url = "") => {
+  if (!url) return "";
+  let decoded = url;
+  try { decoded = decodeURIComponent(url); } catch {}
+  const m = decoded.replace(/https?:\/\/(dx\.)?doi\.org\//i, "").match(DOI_RE);
+  return m ? m[1] : "";
+};
+
+const CR_CACHE_KEY = "cr-cache-v1";
+function loadCrCache() {
+  try { return JSON.parse(localStorage.getItem(CR_CACHE_KEY) || "{}") || {}; }
+  catch { return {}; }
+}
+function saveCrCache(cache) {
+  try { localStorage.setItem(CR_CACHE_KEY, JSON.stringify(cache)); } catch {}
+}
+
+async function fillRealTitles(rows, { batchSize = 8, timeoutMs = 9000, max = 80, cache = {} } = {}) {
+  const need = rows
+    .filter(r => r.title && looksLikeAuthorList(r.title))
+    .map(r => ({ r, doi: extractDoi(r.url || "") }))
+    .filter(x => !!x.doi)
+    .slice(0, max);
+
+  if (!need.length) return { rows, cache };
+
+  const updates = new Map();
+  const getOne = async (doi) => {
+    if (cache[doi]) return cache[doi];
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      const res = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`, { signal: ctl.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const js = await res.json();
+      const m = js?.message || {};
+      const title = cleanText((m.title && m.title[0]) || "");
+      const venue = cleanText((m["container-title"] && m["container-title"][0]) || "");
+      const val = { title, venue };
+      cache[doi] = val;
+      return val;
+    } catch {
+      const val = { title: "", venue: "" };
+      cache[doi] = val;
+      return val;
+    } finally { clearTimeout(t); }
+  };
+
+  for (let i = 0; i < need.length; i += batchSize) {
+    const chunk = need.slice(i, i + batchSize);
+    const results = await Promise.all(chunk.map(x => getOne(x.doi)));
+    results.forEach((res, idx) => updates.set(chunk[idx].r.id, res));
+  }
+
+  const outRows = rows.map(r => {
+    const upd = updates.get(r.id);
+    if (!upd) return r;
+    const fixedTitle = upd.title || r.title;
+    const fixedVenue = upd.venue || r.venue;
+    if (upd.title) return { ...r, title: fixedTitle, venue: fixedVenue };
+    if (looksLikeAuthorList(r.title) && fixedVenue) return { ...r, title: fixedVenue, venue: "" };
+    return r;
+  });
+
+  return { rows: outRows, cache };
 }
 
 /* ------------------------------ Tooltips ------------------------------ */
@@ -131,7 +276,7 @@ const AuthorTooltip  = ({ active, payload }) =>
     : null;
 
 /* ===================================================================== */
-/*                                MAIN                                    */
+/*                                MAIN                                   */
 /* ===================================================================== */
 export default function FacultyPubsDashboard() {
   const [rows, setRows]       = useState([]);
@@ -153,7 +298,7 @@ export default function FacultyPubsDashboard() {
 
   // table paging
   const [page, setPage] = useState(0);
-  const PAGE_SIZE = 25;
+  const PAGE_SIZE = 500;
   useEffect(() => { setPage(0); }, [dq, yearSel, monthSel, authorSel, subjectSel, topicSel, yearRange]);
 
   /* ------------------------------ Load ------------------------------ */
@@ -174,35 +319,58 @@ export default function FacultyPubsDashboard() {
           const venue  = fixed.venue;
 
           const subjects = collectSubjects(r);
-          const topic    = inferTopic([title, venue, subjects.join(" ")].filter(Boolean).join(" "));
 
-          const toInt = (n, lo, hi) => {
-            const v = parseInt(n, 10);
-            if (!Number.isFinite(v)) return null;
-            if (lo != null && v < lo) return null;
-            if (hi != null && v > hi) return null;
-            return v;
-          };
+          const topic    = inferTopic({ title, url: r.url ?? "", year: r.year });
 
-          const year  = toInt(r.year, MIN_YEAR, 3000);
-          const month = toInt(r.month, 1, 12);
+          // year/month extraction
+          let year  = coerceInt(r.year,  MIN_YEAR, 3000);
+          let month = coerceInt(r.month, 1, 12);
+          if (month == null && typeof r.month === "string") {
+            const k = r.month.trim().toLowerCase();
+            month = MONTH_NAME_TO_NUM[k] ?? MONTH_NAME_TO_NUM[k.slice(0,3)] ?? null;
+          }
+          if (year == null || month == null) {
+            const ym = parseYearMonthFromAny(r);
+            if (year  == null && ym.year  != null) year  = coerceInt(ym.year,  MIN_YEAR, 3000);
+            if (month == null && ym.month != null) month = coerceInt(ym.month, 1, 12);
+          }
+
           const url   = cleanText(r.url || "");
-
           const id = String(r.id || `${year || "x"}-${title}-${i}`)
             .normalize("NFKD").replace(/[^\w\-]+/g, "-").slice(0, 160);
 
           return {
             id, title, venue, type, format, authors, subjects, topic, year, month, url,
-            lcTitle: title.toLowerCase(),
-            lcVenue: venue.toLowerCase(),
+            lcTitle: (title || "").toLowerCase(),
+            lcVenue: (venue || "").toLowerCase(),
             lcSubjects: subjects.map(s => s.toLowerCase()),
             lcAuthors: authors.map(a => a.toLowerCase())
           };
         })
-        .filter(r => r.title);
+        .filter(r => r.title)
+        .filter(r => !r.year || (r.year >= MIN_YEAR && r.year <= new Date().getFullYear() + 1));
 
       setRows(cleaned);
       setLoading(false);
+
+      // background title fix via Crossref
+      const cache = loadCrCache();
+      fillRealTitles(cleaned, { cache, max: 80 }).then(({ rows: enriched, cache: newCache }) => {
+        saveCrCache(newCache);
+        const changed = enriched.some((r, idx) => r.title !== cleaned[idx]?.title || r.venue !== cleaned[idx]?.venue);
+        if (!changed) return;
+
+        setRows(prev => {
+          const prevMap = new Map(prev.map(x => [x.id, x]));
+          return enriched.map(r => {
+            const before = prevMap.get(r.id);
+            const titleChanged = before && r.title !== before.title;
+            return titleChanged
+              ? { ...r, topic: inferTopic({ title: r.title, url: r.url, year: r.year }) }
+              : r;
+          });
+        });
+      }).catch(() => {});
     })();
   }, []);
 
@@ -228,7 +396,7 @@ export default function FacultyPubsDashboard() {
     });
   }, [rows, dq, yearSel, yearRange, monthSel, authorSel, subjectSel, topicSel]);
 
-  // same as filtered but ignoring time (for Year axis completeness)
+  // for Year bars completeness (ignore time filters)
   const filteredNoTime = useMemo(() => {
     const query = dq.trim();
     return rows.filter(r => {
@@ -253,7 +421,6 @@ export default function FacultyPubsDashboard() {
   const tableRows  = filtered.slice(startIndex, endIndex);
 
   /* ------------------------------ Charts data ------------------------------ */
-  // Year bars reflect non-time filters; axis remains complete
   const byYear = useMemo(() => {
     const counts = new Map();
     for (const r of filteredNoTime) if (isNum(r.year)) counts.set(r.year, (counts.get(r.year) || 0) + 1);
@@ -266,7 +433,6 @@ export default function FacultyPubsDashboard() {
     return out;
   }, [filteredNoTime]);
 
-  // keep Brush handles in sync with current range / data
   useEffect(() => {
     if (!byYear.length) return;
     const firstYear = yearRange?.from ?? byYear[0].year;
@@ -276,7 +442,6 @@ export default function FacultyPubsDashboard() {
     setBrushIdx({ start: siRaw < 0 ? 0 : siRaw, end: eiRaw < 0 ? byYear.length - 1 : eiRaw });
   }, [byYear, yearRange]);
 
-  // rows for heatmap (respect time selections)
   const filteredForHeat = useMemo(() => {
     let base = filteredNoTime;
     if (yearSel != null) base = base.filter(r => r.year === yearSel);
@@ -285,7 +450,6 @@ export default function FacultyPubsDashboard() {
     return base;
   }, [filteredNoTime, yearSel, yearRange, monthSel]);
 
-  // heat counts
   const heat = useMemo(() => {
     const m = new Map(); let vmax = 0;
     for (const r of filteredForHeat) {
@@ -297,12 +461,13 @@ export default function FacultyPubsDashboard() {
     return { get: (y, mo) => m.get(`${y}|${mo}`) || 0, vmax };
   }, [filteredForHeat]);
 
-  // donut, subjects, topics, authors
   const byMonth = useMemo(() => {
     const base = Array.from({ length: 12 }, (_, i) => ({ m: i + 1, label: MONTHS[i], count: 0 }));
     for (const r of filtered) if (isNum(r.month)) base[r.month - 1].count += 1;
     return base;
   }, [filtered]);
+
+  const totalMonthCounts = useMemo(() => byMonth.reduce((s, d) => s + d.count, 0), [byMonth]);
 
   const bySubjectRaw = useMemo(() => {
     const map = new Map();
@@ -392,7 +557,9 @@ export default function FacultyPubsDashboard() {
   /* ------------------------------ Heatmap panel ------------------------------ */
   function HeatmapPanel() {
     const yearsList = byYear.map(d => d.year);
-    if (!yearsList.length) return <div className="muted" style={{ padding: 8 }}>No month data.</div>;
+    if (!yearsList.length || heat.vmax === 0) {
+      return <div className="muted" style={{ padding: 8 }}>No month data.</div>;
+    }
     const manyYears  = yearsList.length > 22;
     const colW       = manyYears ? 24 : 30;
     const rowH       = manyYears ? 22 : 26;
@@ -400,51 +567,53 @@ export default function FacultyPubsDashboard() {
     const headFmt    = (y) => (yearsList.length <= 16 ? String(y) : `’${String(y).slice(2)}`);
 
     return (
-      <div className="heatmap-scroll" style={{ height: PANEL_H - 56 }}>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: `60px repeat(${yearsList.length}, ${colW}px)`,
-            gridAutoRows: `${rowH}px`,
-            gap: 6,
-            alignItems: "center",
-            padding: 8,
-            paddingBottom: 6,
-          }}
-        >
-          <div className="heat-sticky-top" style={{ fontSize: 11, color: "#6b7280" }} />
-          {yearsList.map((y) => (
-            <div key={`yh-${y}`} className="mono heat-sticky-top" style={{ fontSize: 11, textAlign: "center", color: "#6b7280", background:"#fff" }} title={String(y)}>
-              {headFmt(y)}
-            </div>
-          ))}
+      <div className="heatmap-scroll" style={{ height: "100%", display:"flex", flexDirection:"column", minHeight:0 }}>
+        <div style={{ overflow:"auto", flex:1, minHeight:0 }}>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: `60px repeat(${yearsList.length}, ${colW}px)`,
+              gridAutoRows: `${rowH}px`,
+              gap: 6,
+              alignItems: "center",
+              padding: 8,
+              paddingBottom: 6,
+            }}
+          >
+            <div className="heat-sticky-top" style={{ fontSize: 11, color: "#6b7280" }} />
+            {yearsList.map((y) => (
+              <div key={`yh-${y}`} className="mono heat-sticky-top" style={{ fontSize: 11, textAlign: "center", color: "#6b7280", background:"#fff" }} title={String(y)}>
+                {headFmt(y)}
+              </div>
+            ))}
 
-          {MONTHS.map((mLabel, idx) => {
-            const m = idx + 1;
-            return (
-              <Fragment key={`row-${m}`}>
-                <div className="heat-sticky-left" style={{ fontSize: 12, color: "#0f172a", paddingRight: 4, background:"#fff" }}>
-                  {mLabel}
-                </div>
-                {yearsList.map((y) => {
-                  const v = heat.get(y, m);
-                  const bg = heatColor(v, heat.vmax);
-                  const selected = yearSel === y && monthSel === m;
-                  return (
-                    <button
-                      key={`cell-${y}-${m}`}
-                      title={`${mLabel} ${y}: ${v} publications`}
-                      onClick={() => { setYearSel(y); setMonthSel(m); setYearRange(null); }}
-                      className={`heat-cell${selected ? " selected" : ""}`}
-                      style={{ width: colW, height: rowH, background: bg, boxShadow: "inset 0 -1px 0 rgba(255,255,255,.35), 0 0 0 1px rgba(17,24,39,.04)" }}
-                    >
-                      {showCounts && v > 0 && <span style={{ fontSize:10, fontWeight:600 }}>{v}</span>}
-                    </button>
-                  );
-                })}
-              </Fragment>
-            );
-          })}
+            {MONTHS.map((mLabel, idx) => {
+              const m = idx + 1;
+              return (
+                <Fragment key={`row-${m}`}>
+                  <div className="heat-sticky-left" style={{ fontSize: 12, color: "#0f172a", paddingRight: 4, background:"#fff" }}>
+                    {mLabel}
+                  </div>
+                  {yearsList.map((y) => {
+                    const v = heat.get(y, m);
+                    const bg = heatColor(v, heat.vmax);
+                    const selected = yearSel === y && monthSel === m;
+                    return (
+                      <button
+                        key={`cell-${y}-${m}`}
+                        title={`${mLabel} ${y}: ${v} publications`}
+                        onClick={() => { setYearSel(y); setMonthSel(m); setYearRange(null); }}
+                        className={`heat-cell${selected ? " selected" : ""}`}
+                        style={{ width: colW, height: rowH, background: bg, boxShadow: "inset 0 -1px 0 rgba(255,255,255,.35), 0 0 0 1px rgba(17,24,39,.04)" }}
+                      >
+                        {showCounts && v > 0 && <span style={{ fontSize:10, fontWeight:600 }}>{v}</span>}
+                      </button>
+                    );
+                  })}
+                </Fragment>
+              );
+            })}
+          </div>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 8px 8px 8px" }}>
@@ -491,7 +660,7 @@ export default function FacultyPubsDashboard() {
             <span style={{opacity:.6}}>🔎</span>
             <input className="input" placeholder="Title, author, subject…" value={q} onChange={(e)=>setQ(e.target.value)} aria-label="Search publications" />
           </div>
-          {/* <div className="ymp-compact">
+          <div className="ymp-compact">
             <YearMonthPicker
               valueYear={yearSel}
               valueMonth={monthSel}
@@ -499,7 +668,7 @@ export default function FacultyPubsDashboard() {
               minYear={MIN_YEAR}
               maxYear={new Date().getFullYear()}
             />
-          </div> */}
+          </div>
         </div>
 
         {(yearSel || monthSel || authorSel || subjectSel || topicSel || dq || yearRange) && (
@@ -526,84 +695,97 @@ export default function FacultyPubsDashboard() {
       <div className="rowA"
         style={{ display: "grid", gridTemplateColumns: "3fr 2fr 7fr", gap: 12, alignItems: "stretch", marginBottom: 12 }}>
         {/* Year bars */}
-        <div className="card chart-card year-card" style={{ height: PANEL_H }}>
+        <div className="card chart-card year-card" style={{ height: PANEL_H, display:"flex", flexDirection:"column" }}>
           <h3 className="tight">Publications</h3>
-          <ResponsiveContainer width="100%" height={PANEL_H - 46}>
-            <BarChart data={byYear} margin={{ top: 4, right: 8, left: 6, bottom: 6 }} barSize={10} barCategoryGap={12}>
-              <defs>
-                <linearGradient id="yearBar" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#67d1ff" /><stop offset="100%" stopColor="#6d5cf4" />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 6" stroke={COLOR_GRID} />
-              {/* categorical axis → wider click targets */}
-              <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#6b7280" }} tickMargin={6} axisLine={{ stroke: "#d1d5db" }} tickLine={false} interval="preserveStartEnd" />
-              <YAxis width={28} allowDecimals={false} tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={{ stroke: "#d1d5db" }} tickLine={false} />
-              <Tooltip cursor={{ fill: "rgba(99,102,241,0.06)" }} formatter={(v) => [`${v} publications`, "Year"]} labelFormatter={(y) => `Year ${y}`} />
-              <Bar dataKey="count" name="Publications" radius={[4,4,0,0]} isAnimationActive={false}>
-                {byYear.map((d, i) => (
-                  <Cell key={i}
-                        fill={yearSel === d.year ? "#7c3aed" : "url(#yearBar)"}
-                        style={{ cursor: "pointer" }}
-                        onClick={() => { const y = Number(d?.year); if (isNum(y)) { setYearSel(prev => (prev === y ? null : y)); setYearRange(null); }}} />
-                ))}
-              </Bar>
-              {byYear.length > 2 && (
-                <Brush
-                  dataKey="year"
-                  height={36}              // bigger = easier to grab
-                  travellerWidth={16}
-                  stroke="#9ca3af"
-                  fill="#eef2ff"
-                  startIndex={brushIdx.start}
-                  endIndex={brushIdx.end}
-                  onChange={(rng) => {
-                    if (!rng) return;
-                    const si = Math.max(0, Math.min(byYear.length - 1, rng.startIndex ?? 0));
-                    const ei = Math.max(0, Math.min(byYear.length - 1, rng.endIndex   ?? byYear.length - 1));
-                    const from = byYear[Math.min(si, ei)]?.year;
-                    const to   = byYear[Math.max(si, ei)]?.year;
-                    setBrushIdx({ start: si, end: ei });
-                    if (isNum(from) && isNum(to)) { setYearRange({ from, to }); setYearSel(null); }
-                  }}
-                />
-              )}
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Donut by Month */}
-        <div className="card chart-card donut-card" style={{ height: PANEL_H }}>
-          <h3 className="tight">By Month</h3>
-          <div className="donut-wrap" style={{ height: PANEL_H - 46, display:"flex", alignItems:"center", justifyContent:"center" }}>
-            <ResponsiveContainer width="95%" height="95%">
-              <PieChart>
-                <Pie
-                  data={byMonth}
-                  dataKey="count"
-                  nameKey="label"
-                  innerRadius="58%"
-                  outerRadius="78%"
-                  paddingAngle={1.5}
-                  stroke="#ffffff"
-                  strokeWidth={1}
-                  onClick={(e) => { const m = Number(e?.payload?.m); if (m) setMonthSel(prev => (prev === m ? null : m)); }}
-                >
-                  {byMonth.map((_, i) => (
-                    <Cell key={i} fill={MONTH_COLORS[i % MONTH_COLORS.length]} opacity={monthSel && monthSel !== i+1 ? 0.45 : 1} />
+          <div style={{ flex:1, minHeight:0 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={byYear} margin={{ top: 4, right: 8, left: 6, bottom: 6 }} barSize={10} barCategoryGap={12}>
+                <defs>
+                  <linearGradient id="yearBar" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#67d1ff" /><stop offset="100%" stopColor="#6d5cf4" />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 6" stroke={COLOR_GRID} />
+                <XAxis dataKey="year" tick={{ fontSize: 11, fill: "#6b7280" }} tickMargin={6} axisLine={{ stroke: "#d1d5db" }} tickLine={false} interval="preserveStartEnd" />
+                <YAxis width={28} allowDecimals={false} tick={{ fontSize: 11, fill: "#6b7280" }} axisLine={{ stroke: "#d1d5db" }} tickLine={false} />
+                <Tooltip cursor={{ fill: "rgba(99,102,241,0.06)" }} formatter={(v) => [`${v} publications`, "Year"]} labelFormatter={(y) => `Year ${y}`} />
+                <Bar dataKey="count" name="Publications" radius={[4,4,0,0]} isAnimationActive={false}>
+                  {byYear.map((d, i) => (
+                    <Cell
+                      key={i}
+                      fill={yearSel === d.year ? "#7c3aed" : "url(#yearBar)"}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => {
+                        const y = Number(d?.year);
+                        if (isNum(y)) { setYearSel(prev => (prev === y ? null : y)); setYearRange(null); }
+                      }}
+                    />
                   ))}
-                </Pie>
-                <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fontSize="12" fill="#374151">
-                  {monthSel ? MONTHS[monthSel-1] : "All months"}
-                </text>
-                <Tooltip formatter={(v, _n, ctx) => [`${v} publications`, ctx?.payload?.label || "Month"]}/>
-              </PieChart>
+                </Bar>
+                {byYear.length > 2 && (
+                  <Brush
+                    dataKey="year"
+                    height={36}
+                    travellerWidth={16}
+                    stroke="#9ca3af"
+                    fill="#eef2ff"
+                    startIndex={brushIdx.start}
+                    endIndex={brushIdx.end}
+                    onChange={(rng) => {
+                      if (!rng) return;
+                      const si = Math.max(0, Math.min(byYear.length - 1, rng.startIndex ?? 0));
+                      const ei = Math.max(0, Math.min(byYear.length - 1, rng.endIndex   ?? byYear.length - 1));
+                      const from = byYear[Math.min(si, ei)]?.year;
+                      const to   = byYear[Math.max(si, ei)]?.year;
+                      setBrushIdx({ start: si, end: ei });
+                      if (isNum(from) && isNum(to)) { setYearRange({ from, to }); setYearSel(null); }
+                    }}
+                  />
+                )}
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
 
+        {/* Donut by Month */}
+        <div className="card chart-card donut-card" style={{ height: PANEL_H, display:"flex", flexDirection:"column" }}>
+          <h3 className="tight">By Month</h3>
+          <div style={{ flex:1, minHeight:0, display:"flex" }}>
+            {totalMonthCounts === 0 ? (
+              <div className="muted" style={{ margin:"auto", fontSize: 12 }}>No month data.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={byMonth}
+                    dataKey="count"
+                    nameKey="label"
+                    innerRadius="58%"
+                    outerRadius="78%"
+                    paddingAngle={1.5}
+                    stroke="#ffffff"
+                    strokeWidth={1}
+                    onClick={(e) => {
+                      const m = Number(e?.payload?.m);
+                      if (m) setMonthSel(prev => (prev === m ? null : m));
+                    }}
+                  >
+                    {byMonth.map((_, i) => (
+                      <Cell key={i} fill={MONTH_COLORS[i % MONTH_COLORS.length]} opacity={monthSel && monthSel !== i+1 ? 0.45 : 1} />
+                    ))}
+                  </Pie>
+                  <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fontSize="12" fill="#374151">
+                    {monthSel ? MONTHS[monthSel-1] : "All months"}
+                  </text>
+                  <Tooltip formatter={(v, _n, ctx) => [`${v} publications`, ctx?.payload?.label || "Month"]}/>
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
         {/* Table */}
-        <div className="right-table card" style={{ height: PANEL_H }}>
+        <div className="right-table card" style={{ height: PANEL_H, display:"flex", flexDirection:"column" }}>
           <div className="table-header">
             <h3 className="tight">List of Publications</h3>
             <div className="pager">
@@ -616,7 +798,7 @@ export default function FacultyPubsDashboard() {
               </div>
             </div>
           </div>
-          <div className="table-scroll" style={{ height: PANEL_H - 58 }}>
+          <div className="table-scroll" style={{ flex:1, minHeight:0 }}>
             <table className="table pubs compact sticky">
               <colgroup>
                 <col style={{ width: 110 }} />
@@ -630,13 +812,14 @@ export default function FacultyPubsDashboard() {
               <tbody>
                 {tableRows.map((d, i) => {
                   const title = d.title || "—";
+                  const displayTitle = ((!title || looksLikeAuthorList(title)) && d.venue) ? d.venue : title;
                   const authorList = (d.authors || []).join(", ") || "—";
                   return (
                     <tr key={`${d.id}-${i}`}>
                       <td className="mono">{d.year ?? "—"}{d.month ? ` (${MONTHS[d.month - 1]})` : ""}</td>
                       <td className="venue-cell"><div className="clamp-1" title={authorList}>{authorList}</div></td>
-                      <td className="title-cell"><div className="clamp-2" title={title}>{title}</div></td>
-                      <td>{d.url ? <a href={d.url} target="_blank" rel="noreferrer" aria-label={`Open ${title}`}>Open</a> : "—"}</td>
+                      <td className="title-cell"><div className="clamp-2" title={displayTitle}>{displayTitle}</div></td>
+                      <td>{d.url ? <a href={d.url} target="_blank" rel="noreferrer" aria-label={`Open ${displayTitle}`}>Open</a> : "—"}</td>
                     </tr>
                   );
                 })}
@@ -649,100 +832,114 @@ export default function FacultyPubsDashboard() {
 
       {/* ============ ROW B: Subject + Authors + Heatmap ============ */}
       <div className="rowB"
-        style={{ display: "grid", gridTemplateColumns: "4fr 5fr 7fr", gap: 12, alignItems: "stretch", marginBottom: 12 }}>
+        style={{ display: "grid", gridTemplateColumns: "3fr 2fr 7fr", gap: 12, alignItems: "stretch", marginBottom: 12 }}>
         {/* Subject / Topic */}
-        <div className="card chart-card subject-card" style={{ height: PANEL_H }}>
-          <h3 className="tight">{showTopicsInstead ? "Subject Area" : "Publication by Subject"}</h3>
-          {showTopicsInstead ? (
-            !byTopic.length ? (
-              <div className="muted" style={{ padding: 10 }}>No topic data.</div>
+        <div className="card chart-card subject-card" style={{ height: PANEL_H, display:"flex", flexDirection:"column" }}>
+          <h3 className="tight">{showTopicsInstead ? "Publications by Topic" : "Publications by Subject"}</h3>
+          <div style={{ flex:1, minHeight:0 }}>
+            {showTopicsInstead ? (
+              byTopic.length === 0 ? (
+                <div className="muted" style={{ padding: 10 }}>No topic data.</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={byTopic} layout="vertical" barSize={8} margin={{ top: 2, right: 12, bottom: 2, left: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={COLOR_GRID} />
+                    <XAxis type="number" allowDecimals={false} />
+                    <YAxis type="category" dataKey="topic" width={0} tick={false} axisLine={false} tickLine={false} />
+                    <Tooltip />
+                    <defs>
+                      <linearGradient id="topicFill" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%"  stopColor="#6eace6" />
+                        <stop offset="100%" stopColor="#84d81d" />
+                      </linearGradient>
+                    </defs>
+                    <Bar
+                      dataKey="count"
+                      name="Publications"
+                      fill="url(#topicFill)"
+                      radius={[0,3,3,0]}
+                      isAnimationActive={false}
+                      cursor="pointer"
+                      onClick={({ payload }) => { const t = payload?.topic; if (t) setTopicSel(prev => (prev === t ? "" : t)); }}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              )
             ) : (
-              <ResponsiveContainer width="100%" height={PANEL_H - 46}>
-                <BarChart data={byTopic} layout="vertical" barSize={8} margin={{ top: 2, right: 12, bottom: 2, left: 4 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={COLOR_GRID} />
-                  <XAxis type="number" allowDecimals={false} />
-                  <YAxis type="category" dataKey="topic" width={0} tick={false} axisLine={false} tickLine={false} />
-                  <Tooltip />
-                  <defs>
-                    <linearGradient id="topicFill" x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0%"  stopColor="#6eace6" />
-                      <stop offset="100%" stopColor="#84d81d" />
-                    </linearGradient>
-                  </defs>
-                  <Bar dataKey="count" name="Publications" fill="url(#topicFill)" radius={[0,3,3,0]} isAnimationActive={false}
-                       cursor="pointer" onClick={({ payload }) => { const t = payload?.topic; if (t) setTopicSel(prev => (prev === t ? "" : t)); }} />
-                </BarChart>
-              </ResponsiveContainer>
-            )
-          ) : (
-            !bySubject.length ? (
-              <div className="muted" style={{ padding: 8 }}>No subject data.</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={PANEL_H - 46}>
-                <ComposedChart data={bySubject} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
-                  <CartesianGrid strokeDasharray="3 6" stroke={COLOR_GRID} />
-                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill:"#6b7280" }} />
-                  <YAxis type="category" dataKey="subject" width={240} tick={{ fontSize: 11 }}
-                         tickFormatter={(s) => (s.length > 28 ? s.slice(0,26) + "…" : s)} />
-                  <Tooltip content={<SubjectTooltip/>} />
-                  <Bar dataKey="count" barSize={6} radius={[0,3,3,0]} fill="#e5e7eb" />
-                  <Bar dataKey="count" barSize={18} radius={[0,6,6,0]} isAnimationActive={false}
-                       onClick={({ payload }) => setSubjectSel(prev => prev === payload.subject ? "" : payload.subject)}>
-                    {bySubject.map((d, i) => <Cell key={i} fill={subjectSel === d.subject ? "#7c3aed" : "url(#topicFill)"} />)}
-                  </Bar>
-                  <defs>
-                    <linearGradient id="topicFill" x1="0" y1="0" x2="1" y2="0">
-                      <stop offset="0%"  stopColor="#6eace6"/><stop offset="100%" stopColor="#84d81d"/>
-                    </linearGradient>
-                  </defs>
-                </ComposedChart>
-              </ResponsiveContainer>
-            )
-          )}
+              bySubject.length === 0 ? (
+                <div className="muted" style={{ padding: 8 }}>No subject data.</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={bySubject} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 8 }}>
+                    <CartesianGrid strokeDasharray="3 6" stroke={COLOR_GRID} />
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill:"#6b7280" }} />
+                    <YAxis type="category" dataKey="subject" width={240} tick={{ fontSize: 11 }}
+                           tickFormatter={(s) => (s.length > 28 ? s.slice(0,26) + "…" : s)} />
+                    <Tooltip content={<SubjectTooltip/>} />
+                    <Bar dataKey="count" barSize={6} radius={[0,3,3,0]} fill="#e5e7eb" />
+                    <Bar dataKey="count" barSize={18} radius={[0,6,6,0]} isAnimationActive={false}
+                         onClick={({ payload }) => setSubjectSel(prev => prev === payload.subject ? "" : payload.subject)}>
+                      {bySubject.map((d, i) => <Cell key={i} fill={subjectSel === d.subject ? "#7c3aed" : "url(#topicFill)"} />)}
+                    </Bar>
+                    <defs>
+                      <linearGradient id="topicFill" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%"  stopColor="#6eace6"/><stop offset="100%" stopColor="#84d81d"/>
+                      </linearGradient>
+                    </defs>
+                  </ComposedChart>
+                </ResponsiveContainer>
+              )
+            )}
+          </div>
         </div>
 
         {/* Top Authors */}
-        <div className="card chart-card authors-card" style={{ height: PANEL_H }}>
+        <div className="card chart-card authors-card" style={{ height: PANEL_H, display:"flex", flexDirection:"column" }}>
           <h3 className="tight">Top Authors</h3>
-          {!topAuthors.length ? (
-            <div className="muted" style={{ padding: 8 }}>No author data.</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={PANEL_H - 46}>
-              <ComposedChart data={topAuthors} layout="vertical" margin={{ top: 4, right: 56, bottom: 0, left: 8 }}>
-                <CartesianGrid strokeDasharray="3 6" stroke={COLOR_GRID} />
-                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill:"#6b7280" }} />
-                <YAxis type="category" dataKey="author" width={120} tick={{ fontSize: 11 }}
-                       tickFormatter={(s)=> (s.length>28? s.slice(0,26)+"…" : s)} />
-                <Tooltip content={<AuthorTooltip />} />
-                <Bar dataKey="count" barSize={4} radius={[0,2,2,0]} fill="#e5e7eb" />
-                <Scatter dataKey="count" isAnimationActive={false}
-                  shape={(p) => {
-                    const selected = authorSel === p?.payload?.author;
-                    const r = selected ? 7 : 5;
-                    return (
-                      <g onClick={()=>{
-                          const a=p?.payload?.author; if(a) setAuthorSel(prev=>prev===a?"":a);
-                        }}
-                        style={{ cursor:"pointer" }}
-                      >
-                        <circle cx={p.cx} cy={p.cy} r={r} fill="#7c3aed" />
-                        <circle cx={p.cx} cy={p.cy} r={r} fill="none" stroke="#fff" strokeWidth={1.4}/>
-                      </g>
-                    );
-                  }}
-                >
-                  <LabelList dataKey="count" position="right" offset={8} formatter={(v)=>String(v)}
-                    style={{ fontSize: 11, fill:"#111827", pointerEvents:"none" }} />
-                </Scatter>
-              </ComposedChart>
-            </ResponsiveContainer>
-          )}
+          <div style={{ flex:1, minHeight:0 }}>
+            {topAuthors.length === 0 ? (
+              <div className="muted" style={{ padding: 8 }}>No author data.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={topAuthors} layout="vertical" margin={{ top: 4, right: 56, bottom: 0, left: 8 }}>
+                  <CartesianGrid strokeDasharray="3 6" stroke={COLOR_GRID} />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill:"#6b7280" }} />
+                  <YAxis type="category" dataKey="author" width={120} tick={{ fontSize: 11 }}
+                         tickFormatter={(s)=> (s.length>28? s.slice(0,26)+"…" : s)} />
+                  <Tooltip content={<AuthorTooltip />} />
+                  <Bar dataKey="count" barSize={4} radius={[0,2,2,0]} fill="#e5e7eb" />
+                  <Scatter dataKey="count" isAnimationActive={false}
+                    shape={(p) => {
+                      const selected = authorSel === p?.payload?.author;
+                      const r = selected ? 7 : 5;
+                      return (
+                        <g
+                          onClick={()=>{
+                            const a=p?.payload?.author; if(a) setAuthorSel(prev=>prev===a?"":a);
+                          }}
+                          style={{ cursor:"pointer" }}
+                        >
+                          <circle cx={p.cx} cy={p.cy} r={r} fill="#7c3aed" />
+                          <circle cx={p.cx} cy={p.cy} r={r} fill="none" stroke="#fff" strokeWidth={1.4}/>
+                        </g>
+                      );
+                    }}
+                  >
+                    <LabelList dataKey="count" position="right" offset={8} formatter={(v)=>String(v)}
+                      style={{ fontSize: 11, fill:"#111827", pointerEvents:"none" }} />
+                  </Scatter>
+                </ComposedChart>
+              </ResponsiveContainer>
+            )}
+          </div>
         </div>
 
         {/* Heatmap */}
-        <div className="card heatmap-card" style={{ height: PANEL_H }}>
+        <div className="card heatmap-card" style={{ height: PANEL_H, display:"flex", flexDirection:"column" }}>
           <h3 className="tight">Year × Month</h3>
-          <HeatmapPanel />
+          <div style={{ flex:1, minHeight:0 }}>
+            <HeatmapPanel />
+          </div>
         </div>
       </div>
 
