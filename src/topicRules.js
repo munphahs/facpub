@@ -35,6 +35,7 @@ export const TOPIC_CATEGORIES = [
   "Dental & Oral Health",
   "Health Services & Policy",
   "AI, Data Science & Methods",
+  "Occupational & Environmental Health",
   "Other",
 ];
 
@@ -143,6 +144,47 @@ const TOKENS = [
   [/(dent(al|istry)|oral\s+health|periodont|endodont|prosthodont)/, "Dental & Oral Health"],
 
   [/(machine\s*learning|deep\s*learning|artificial\s+intelligence|\bnlp\b|natural\s+language|predictive\s+model|algorithm|validation\s+cohort|propensity\s+score|time\s+series|segmentation|classification)/, "AI, Data Science & Methods"],
+
+  // Public & Community Health / Environmental
+[/\b(circular\s+economy|climate\s+change|environmental\s+contaminants?|waste\s+management|landfill|pollutants?|ecological|ecohealth|environmental\s+health)\b/, "Occupational & Environmental Health"],
+
+// Cannabis / substance use
+[/\bcannabis|marijuana|opioid|safer\s+opioid\s+supply|substance\s+use|drug\s+policy|drug\s+use|dispensar(y|ies)|retailer(s)?\b/, "Psychiatry & Mental Health"],
+
+// Food / nutrition environment
+[/\b(food\s+marketing|food\s+environments?|beverage\s+consumption|sugar-?sweetened\s+beverage|breastfeed(ing)?|infant\s+feeding|food\s+security|food\s+insecurity|nutrition\s+literacy|dietary\s+patterns)\b/, "Nutrition, Physiology & Biomechanics"],
+
+// Patient engagement / medical education
+[/\b(patient\s+engagement|reflection-?on-?practice|medical\s+education|virtual\s+care|simulation\s+fidelity|training\s+module|continuing\s+professional\s+development)\b/, "Health Services & Policy"],
+
+// Workplace / maritime / injury
+[/\b(seafarer|maritime\s+labour|workplace\s+injur(y|ies)|return\s+to\s+work|occupational\s+health|occupational\s+safety|fishing\s+health\s+and\s+safety)\b/, "Occupational & Environmental Health"],
+
+  // Public & Community Health / Health Services & Policy
+[/\b(cjph|canadian\s+journal\s+of\s+public\s+health|lancet\s+public\s+health|plos\s+global\s+public\s+health|bmj\s+open)\b/, "Public & Community Health"],
+[/\b(harm\s+reduction\s+journal|int(ernational)?\s+journal\s+on\s+drug\s+policy|drug\s+and\s+alcohol\s+depend(e|a)nce(\s+reports)?|alcohol\s+and\s+alcoholism|journal\s+of\s+substance\s+use\s+and\s+addiction\s+treatment)\b/, "Psychiatry & Mental Health"],
+[/\b(new\s+solutions:\s*a\s+journal\s+of\s+environmental\s+and\s+occupational\s+health\s+policy|ecohealth|journal\s+of\s+environmental\s+management|waste\s+management\s+bulletin|environmental\s+science\s+and\s+pollution\s+research)\b/, "Public & Community Health"],
+
+// Cardiology
+[/\bheart\s*rhythm|cjc\s*open\b/, "Cardiology"],
+
+// Genetics & Genomics
+[/\borphanet\s+journal\s+of\s+rare\s+diseases|journal\s+of\s+medical\s+genetics\b/, "Genetics & Genomics"],
+
+// OB/Gyn
+[/\binternational\s+journal\s+of\s+gynecological\s+cancer|ajog\s+glob(?!\w)\b/, "Obstetrics, Gynecology & Reproductive Health"],
+
+// Sleep (mostly OSA; keep under Respiratory)
+[/\bnature\s+and\s+science\s+of\s+sleep|sleep\s+science\s*&\s*practice\b/, "Respiratory & Pulmonology"],
+
+// Nutrition / Physiology
+[/\bapplied\s+physiology,\s*nutrition\s*&\s*metabolism\b/, "Nutrition, Physiology & Biomechanics"],
+
+// Methods / Evidence synthesis
+[/\bjbi\s+evidence\s+synthesis\b/, "AI, Data Science & Methods"],
+
+// Emergency & Critical Care
+[/\bcanadian\s+journal\s+of\s+emergency\s+medicine\b/, "Emergency & Critical Care"],
 ];
 
 // --- DOI prefix hints (LOWER PRECISION) --- //
@@ -175,6 +217,8 @@ const AUTHOR_HINTS = [
   [/\b(curran v|lukewich|mathews m|asghari|maddalena|najafizada)\b/, "Public & Community Health"],
   [/\b(prowse r|olstad dl|raine kd)\b/, "Nutrition, Physiology & Biomechanics"],
   [/\b(jogc|do valle|hallis?on|bajzak)\b/, "Obstetrics, Gynecology & Reproductive Health"],
+  [/\b(najafizada|etchegary|curran v|twells|sarkar a)\b/, "Public & Community Health"],
+  [/\b(neis b|shan d|sarkar a)\b/, "Occupational & Environmental Health"],
 ];
 
 // --- Keyword net (broad, MEDIUM precision) --- //
