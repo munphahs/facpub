@@ -335,7 +335,7 @@ export default function FacultyPubsDashboard() {
             if (month == null && ym.month != null) month = coerceInt(ym.month, 1, 12);
           }
 
-          const url   = cleanText(r.url || "");
+          const url   = cleanText(r.url || r.link || "");
           const id = String(r.id || `${year || "x"}-${title}-${i}`)
             .normalize("NFKD").replace(/[^\w\-]+/g, "-").slice(0, 160);
 
