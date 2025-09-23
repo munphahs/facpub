@@ -20,6 +20,7 @@
   --duration: 160ms;
 }
 
+/* ================= Transitions ================= */
 button,
 a,
 .chip,
@@ -31,7 +32,7 @@ select {
   transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-
+/* ================= Base Layout ================= */
 html, body, #root {
   height: 100%;
 }
@@ -325,42 +326,23 @@ h3.tight {
 .btn.pager-btn {
   border: 1px solid #e5e7eb;
   background: #f9fafb;
-  color: #
+  color: #111827;
+}
 
-/*======================== Ensure .table-scroll allows overflow properly:==================*/
-  .table-scroll {
+/* ================= Tables & Scroll ================= */
+.table-scroll {
   height: calc(100% - 30px);
   overflow-x: auto;
   overflow-y: auto;
 }
-
-
-  /*=====================.right-pane {=========================*/
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  height: calc(100vh - 160px); /* Keep this or adjust slightly */
-}
-
-.table-card {
-  flex: 1 1 auto;
-  min-height: 260px;
-  overflow: hidden;
-}
-
-/*===========================Ensure scrollbars are not hidden by wrap.exporting================*/
 .wrap.exporting .table-scroll {
-  scrollbar-width: auto; /* fix if previously set to none */
+  scrollbar-width: auto;
 }
-
-
-/*==========================Cursor fix:=============*/
 .table td {
   cursor: text;
 }
 
-
-/*=========================Add transitions and padding=================*/
+/* ================= Heatmap Enhancements ================= */
 .heat-cell {
   border-radius: 8px;
   border: 1px solid rgba(0, 0, 0, 0.04);
@@ -371,25 +353,16 @@ h3.tight {
   padding: 0;
   transition: background 0.2s ease, outline 0.2s ease, transform 0.15s ease;
 }
-
-
-/*=====================Subtle hover and active states=====================*/
-
 .heat-cell:hover {
-  outline: 2px solid rgba(59, 130, 246, 0.25); /* blue-500 */
+  outline: 2px solid rgba(59, 130, 246, 0.25);
   transform: scale(1.05);
 }
-
 .heat-cell.selected {
   outline: 2px solid #7c3aed;
   outline-offset: 0;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9) inset;
   transform: scale(1.1);
 }
-
-
-/*===========================Add tooltip on hover=====================*/
-
 .heat-cell::after {
   content: attr(data-tooltip);
   position: absolute;
@@ -408,16 +381,13 @@ h3.tight {
   opacity: 1;
 }
 
-
-/*===============================Clean Heatmap Axes==================*/
-
+/* ================= Sticky Axes ================= */
 .heat-sticky-left {
   position: sticky;
   left: 0;
   background: #fff;
   z-index: 2;
 }
-
 .heat-sticky-top {
   position: sticky;
   top: 0;
@@ -425,6 +395,15 @@ h3.tight {
   z-index: 3;
 }
 
-
-
-  
+/* ================= Right Pane Layout ================= */
+.right-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: calc(100vh - 160px);
+}
+.table-card {
+  flex: 1 1 auto;
+  min-height: 260px;
+  overflow: hidden;
+}
