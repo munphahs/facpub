@@ -298,7 +298,7 @@ export default function FacultyPubsDashboard() {
 
   // table paging
   const [page, setPage] = useState(0);
-  const PAGE_SIZE = 500;
+  const PAGE_SIZE = 50;
   useEffect(() => { setPage(0); }, [dq, yearSel, monthSel, authorSel, subjectSel, topicSel, yearRange]);
 
   /* ------------------------------ Load ------------------------------ */
