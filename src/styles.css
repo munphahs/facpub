@@ -326,3 +326,105 @@ h3.tight {
   border: 1px solid #e5e7eb;
   background: #f9fafb;
   color: #
+
+/*======================== Ensure .table-scroll allows overflow properly:==================*/
+  .table-scroll {
+  height: calc(100% - 30px);
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+
+  /*=====================.right-pane {=========================*/
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: calc(100vh - 160px); /* Keep this or adjust slightly */
+}
+
+.table-card {
+  flex: 1 1 auto;
+  min-height: 260px;
+  overflow: hidden;
+}
+
+/*===========================Ensure scrollbars are not hidden by wrap.exporting================*/
+.wrap.exporting .table-scroll {
+  scrollbar-width: auto; /* fix if previously set to none */
+}
+
+
+/*==========================Cursor fix:=============*/
+.table td {
+  cursor: text;
+}
+
+
+/*=========================Add transitions and padding=================*/
+.heat-cell {
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.2s ease, outline 0.2s ease, transform 0.15s ease;
+}
+
+
+/*=====================Subtle hover and active states=====================*/
+
+.heat-cell:hover {
+  outline: 2px solid rgba(59, 130, 246, 0.25); /* blue-500 */
+  transform: scale(1.05);
+}
+
+.heat-cell.selected {
+  outline: 2px solid #7c3aed;
+  outline-offset: 0;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9) inset;
+  transform: scale(1.1);
+}
+
+
+/*===========================Add tooltip on hover=====================*/
+
+.heat-cell::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  background: #111827;
+  color: white;
+  padding: 4px 8px;
+  font-size: 10px;
+  border-radius: 4px;
+  white-space: nowrap;
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.heat-cell:hover::after {
+  opacity: 1;
+}
+
+
+/*===============================Clean Heatmap Axes==================*/
+
+.heat-sticky-left {
+  position: sticky;
+  left: 0;
+  background: #fff;
+  z-index: 2;
+}
+
+.heat-sticky-top {
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 3;
+}
+
+
+
+  
