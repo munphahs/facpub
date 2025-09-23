@@ -43,7 +43,7 @@ body {
   color: #111827;
 }
 .wrap.pretty {
-  max-width: 1600px;
+  max-width: 1920px;
   margin: var(--space-md) auto;
   padding: 0 var(--space-md);
 }
