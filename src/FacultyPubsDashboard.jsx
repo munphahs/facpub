@@ -12,7 +12,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
 /* ------------------------------ Constants ------------------------------ */
-const PANEL_H       = 400;
+const PANEL_H       = 350;
 const COLOR_GRID    = "#e5e7eb";
 const MONTHS        = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const MONTH_COLORS  = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#22C55E","#EAB308","#F97316","#06B6D4","#84CC16","#F43F5E"];
@@ -840,7 +840,7 @@ export default function FacultyPubsDashboard() {
         style={{ display: "grid", gridTemplateColumns: "3fr 2fr 7fr", gap: 12, alignItems: "stretch", marginBottom: 12 }}>
         {/* Subject / Topic */}
         <div className="card chart-card subject-card" style={{ height: PANEL_H, display:"flex", flexDirection:"column" }}>
-          <h3 className="tight">{showTopicsInstead ? "Publications by Topic" : "Subject Areas"}</h3>
+          <h3 className="tight">{showTopicsInstead ? "Subject Areas" : "Subject Areas"}</h3>
           <div style={{ flex:1, minHeight:0 }}>
             {showTopicsInstead ? (
               byTopic.length === 0 ? (
