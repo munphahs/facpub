@@ -785,19 +785,24 @@ export default function FacultyPubsDashboard() {
         </div>
 
         {/* Table */}
-        <div className="right-table card" style={{ height: PANEL_H, display:"flex", flexDirection:"column" }}>
-          <div className="table-header">
-            <h3 className="tight">List of Publications</h3>
-            <div className="pager">
-              <span className="count">{totalRows ? `${startIndex + 1}–${endIndex} of ${totalRows}` : "0 of 0"}</span>
-              <div className="pager-buttons">
-                <button className="btn pager-btn" onClick={() => setPage(0)} disabled={page === 0} title="First">« First</button>
-                <button className="btn pager-btn" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} title="Previous">‹ Prev</button>
-                <button className="btn pager-btn" onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} title="Next">Next ›</button>
-                <button className="btn pager-btn" onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} title="Last">Last »</button>
+        <div className="right-table card" style={{ height: PANEL_H, display: "flex", flexDirection: "column" }}>
+            <div className="table-header">
+              <h3 className="tight">List of Publications</h3>
+          
+              {/* COMBINED pager */}
+              <div className="pager" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                <span className="count">
+                  {totalRows ? `${startIndex + 1}–${endIndex} of ${totalRows}` : "0 of 0"}
+                </span>
+          
+                <div className="pager-buttons" style={{ display: "flex", gap: "0.5rem" }}>
+                  <button className="btn pager-btn" onClick={() => setPage(0)} disabled={page === 0} title="First">« First</button>
+                  <button className="btn pager-btn" onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} title="Previous">‹ Prev</button>
+                  <button className="btn pager-btn" onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} title="Next">Next ›</button>
+                  <button className="btn pager-btn" onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} title="Last">Last »</button>
+                </div>
               </div>
             </div>
-          </div>
           <div className="table-scroll" style={{ flex:1, minHeight:0 }}>
             <table className="table pubs compact sticky">
               <colgroup>
