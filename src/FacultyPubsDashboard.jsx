@@ -12,7 +12,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
 /* ------------------------------ Constants ------------------------------ */
-const PANEL_H       = 300;
+const PANEL_H       = 600;
 const COLOR_GRID    = "#e5e7eb";
 const MONTHS        = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const MONTH_COLORS  = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#22C55E","#EAB308","#F97316","#06B6D4","#84CC16","#F43F5E"];
@@ -696,7 +696,7 @@ export default function FacultyPubsDashboard() {
         style={{ display: "grid", gridTemplateColumns: "3fr 2fr 7fr", gap: 12, alignItems: "stretch", marginBottom: 12 }}>
         {/* Year bars */}
         <div className="card chart-card year-card" style={{ height: PANEL_H, display:"flex", flexDirection:"column" }}>
-          <h3 className="tight">Publications</h3>
+          <h3 className="tight">Publications by Year / Month </h3>
           <div style={{ flex:1, minHeight:0 }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={byYear} margin={{ top: 4, right: 8, left: 6, bottom: 6 }} barSize={10} barCategoryGap={12}>
@@ -749,7 +749,7 @@ export default function FacultyPubsDashboard() {
 
         {/* Donut by Month */}
         <div className="card chart-card donut-card" style={{ height: PANEL_H, display:"flex", flexDirection:"column" }}>
-          <h3 className="tight">By Month</h3>
+          {/* <h3 className="tight">By Month</h3> */}
           <div style={{ flex:1, minHeight:0, display:"flex" }}>
             {totalMonthCounts === 0 ? (
               <div className="muted" style={{ margin:"auto", fontSize: 12 }}>No month data.</div>
@@ -835,7 +835,7 @@ export default function FacultyPubsDashboard() {
         style={{ display: "grid", gridTemplateColumns: "3fr 2fr 7fr", gap: 12, alignItems: "stretch", marginBottom: 12 }}>
         {/* Subject / Topic */}
         <div className="card chart-card subject-card" style={{ height: PANEL_H, display:"flex", flexDirection:"column" }}>
-          <h3 className="tight">{showTopicsInstead ? "Publications by Topic" : "Publications by Subject"}</h3>
+          <h3 className="tight">{showTopicsInstead ? "Publications by Topic" : "Subject Areas"}</h3>
           <div style={{ flex:1, minHeight:0 }}>
             {showTopicsInstead ? (
               byTopic.length === 0 ? (
@@ -895,7 +895,7 @@ export default function FacultyPubsDashboard() {
 
         {/* Top Authors */}
         <div className="card chart-card authors-card" style={{ height: PANEL_H, display:"flex", flexDirection:"column" }}>
-          <h3 className="tight">Top Authors</h3>
+          <h3 className="tight">Authors</h3>
           <div style={{ flex:1, minHeight:0 }}>
             {topAuthors.length === 0 ? (
               <div className="muted" style={{ padding: 8 }}>No author data.</div>
