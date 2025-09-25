@@ -407,3 +407,73 @@ h3.tight {
   min-height: 260px;
   overflow: hidden;
 }
+
+
+/* ================= Add Padding and background colour to make visual in Table Header appearance ================= */
+table thead th {
+  font-weight: 600;
+  font-size: 13px;
+  background-color: #f3f4f6;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 12px;
+  text-align: left;
+
+/* ================= Add subtle ================= */
+table thead th {
+.table tbody tr:nth-child(even) {
+  background-color: #fafafa;
+}
+
+
+  /* ================= Improve Hover highlight ================= */
+.table tbody tr:hover {
+  background-color: #f0f0f0;
+}
+
+
+  /* ================= Standardize Cell Padding ================= */
+  .table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 14px;
+}
+
+/* ================= Fix Truncation and Text Overflow Gracefully ================= */
+.clamp-1, .clamp-2 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.clamp-1 {
+  -webkit-line-clamp: 1;
+}
+.clamp-2 {
+  -webkit-line-clamp: 2;
+}
+
+ /* ================= Improve Pager Buttons ================= */ 
+.pager-buttons .pager-btn {
+  background-color: #fff;
+  border: 1px solid var(--line);
+  padding: 4px 10px;
+  font-size: 13px;
+  border-radius: 6px;
+  margin-left: 4px;
+  transition: background 0.2s ease;
+}
+.pager-buttons .pager-btn:hover:not(:disabled) {
+  background-color: #f3f4f6;
+}
+.pager-buttons .pager-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+
+  /* ================= Font refinement ================= */ 
+  .table {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 14px;
+}
+
