@@ -898,55 +898,92 @@ export default function FacultyPubsDashboard() {
           </div>
         </div>
 
-        {/* Top Authors */}
-        <div className="card chart-card authors-card" style={{ height: PANEL_H, display:"flex", flexDirection:"column" }}>
-          <h3 className="tight">Authors</h3>
-          <div style={{ flex:1, minHeight:0 }}>
-            {topAuthors.length === 0 ? (
-              <div className="muted" style={{ padding: 8 }}>No author data.</div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={topAuthors} layout="vertical" margin={{ top: 4, right: 56, bottom: 0, left: 8 }}>
-                  <CartesianGrid strokeDasharray="3 6" stroke={COLOR_GRID} />
-                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill:"#6b7280" }} />
-                  <YAxis type="category" dataKey="author" width={120} tick={{ fontSize: 11 }}
-                         tickFormatter={(s)=> (s.length>28? s.slice(0,26)+"…" : s)} />
-                  <Tooltip content={<AuthorTooltip />} />
-                  <Bar dataKey="count" barSize={4} radius={[0,2,2,0]} fill="#e5e7eb" />
-                  <Scatter dataKey="count" isAnimationActive={false}
-                    shape={(p) => {
-                      const selected = authorSel === p?.payload?.author;
-                      const r = selected ? 7 : 5;
-                      return (
-                        <g
-                          onClick={()=>{
-                            const a=p?.payload?.author; if(a) setAuthorSel(prev=>prev===a?"":a);
-                          }}
-                          style={{ cursor:"pointer" }}
-                        >
-                          <circle cx={p.cx} cy={p.cy} r={r} fill="#7c3aed" />
-                          <circle cx={p.cx} cy={p.cy} r={r} fill="none" stroke="#fff" strokeWidth={1.4}/>
-                        </g>
-                      );
+        <div style={{ display: "flex", gap: "1rem", height: PANEL_H }}>
+  {/* Authors Panel */}
+  <div
+    className="card chart-card authors-card"
+    style={{
+      width: "40%",
+      minWidth: "300px",
+      display: "flex",
+      flexDirection: "column",
+    }}
+  >
+    <h3 className="tight">Authors</h3>
+    <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+      {topAuthors.length === 0 ? (
+        <div className="muted" style={{ padding: 8 }}>
+          No author data.
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={topAuthors.length * 30}>
+          <ComposedChart
+            data={topAuthors}
+            layout="vertical"
+            margin={{ top: 4, right: 56, bottom: 0, left: 8 }}
+          >
+            <CartesianGrid strokeDasharray="3 6" stroke={COLOR_GRID} />
+            <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#6b7280" }} />
+            <YAxis
+              type="category"
+              dataKey="author"
+              width={120}
+              tick={{ fontSize: 11 }}
+              tickFormatter={(s) => (s.length > 28 ? s.slice(0, 26) + "…" : s)}
+            />
+            <Tooltip content={<AuthorTooltip />} />
+            <Bar dataKey="count" barSize={4} radius={[0, 2, 2, 0]} fill="#e5e7eb" />
+            <Scatter
+              dataKey="count"
+              isAnimationActive={false}
+              shape={(p) => {
+                const selected = authorSel === p?.payload?.author;
+                const r = selected ? 7 : 5;
+                return (
+                  <g
+                    onClick={() => {
+                      const a = p?.payload?.author;
+                      if (a) setAuthorSel((prev) => (prev === a ? "" : a));
                     }}
+                    style={{ cursor: "pointer" }}
                   >
-                    <LabelList dataKey="count" position="right" offset={8} formatter={(v)=>String(v)}
-                      style={{ fontSize: 11, fill:"#111827", pointerEvents:"none" }} />
-                  </Scatter>
-                </ComposedChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
+                    <circle cx={p.cx} cy={p.cy} r={r} fill="#7c3aed" />
+                    <circle cx={p.cx} cy={p.cy} r={r} fill="none" stroke="#fff" strokeWidth={1.4} />
+                  </g>
+                );
+              }}
+            >
+              <LabelList
+                dataKey="count"
+                position="right"
+                offset={8}
+                formatter={(v) => String(v)}
+                style={{ fontSize: 11, fill: "#111827", pointerEvents: "none" }}
+              />
+            </Scatter>
+          </ComposedChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  </div>
 
-        {/* Heatmap */}
-        <div className="card heatmap-card" style={{ height: PANEL_H, display:"flex", flexDirection:"column" }}>
-          <h3 className="tight">Year × Month</h3>
-          <div style={{ flex:1, minHeight:0 }}>
-            <HeatmapPanel />
-          </div>
-        </div>
-      </div>
+  {/* Heatmap Panel */}
+  <div
+    className="card heatmap-card"
+    style={{
+      flex: 1,
+      display: "flex",
+      flexDirection: "column",
+      minWidth: 0, // allows flex item to shrink
+    }}
+  >
+    <h3 className="tight">Year × Month</h3>
+    <div style={{ flex: 1, minHeight: 0 }}>
+      <HeatmapPanel />
+    </div>
+  </div>
+</div>
+
 
       {loading && <div className="card muted" style={{ textAlign: "center" }}>Loading…</div>}
       {error   && <div className="card" style={{ color: "#b91c1c", background: "#fee2e2" }}>Error: {error}</div>}
