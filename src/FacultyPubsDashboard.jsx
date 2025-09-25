@@ -660,7 +660,7 @@ export default function FacultyPubsDashboard() {
             <span style={{opacity:.6}}>🔎</span>
             <input className="input" placeholder="Title, author, subject…" value={q} onChange={(e)=>setQ(e.target.value)} aria-label="Search publications" />
           </div>
-          <div className="ymp-compact">
+          {/* <div className="ymp-compact">
             <YearMonthPicker
               valueYear={yearSel}
               valueMonth={monthSel}
@@ -668,7 +668,7 @@ export default function FacultyPubsDashboard() {
               minYear={MIN_YEAR}
               maxYear={new Date().getFullYear()}
             />
-          </div>
+          </div> */}
         </div>
 
         {(yearSel || monthSel || authorSel || subjectSel || topicSel || dq || yearRange) && (
