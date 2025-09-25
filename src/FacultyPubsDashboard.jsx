@@ -12,7 +12,7 @@ import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 
 /* ------------------------------ Constants ------------------------------ */
-const PANEL_H       = 600;
+const PANEL_H       = 400;
 const COLOR_GRID    = "#e5e7eb";
 const MONTHS        = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const MONTH_COLORS  = ["#6366F1","#10B981","#F59E0B","#EF4444","#3B82F6","#8B5CF6","#22C55E","#EAB308","#F97316","#06B6D4","#84CC16","#F43F5E"];
