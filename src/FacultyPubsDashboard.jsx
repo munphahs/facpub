@@ -657,7 +657,7 @@ export default function FacultyPubsDashboard() {
       <div className="filters-row card" style={{ marginBottom: 12 }}>
         <div className="filter-combined">
           <div className="input-wrap">
-            <span style={{opacity:.6}}>🔎</span>
+            <span style={{opacity:.9}}>🔎</span>
             <input className="input" placeholder="Title, author, subject…" value={q} onChange={(e)=>setQ(e.target.value)} aria-label="Search publications" />
           </div>
           {/* <div className="ymp-compact">
