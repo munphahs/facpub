@@ -916,7 +916,7 @@ export default function FacultyPubsDashboard() {
           No author data.
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={topAuthors.length * 30}>
+        <ResponsiveContainer width="100%" height={topAuthors.length * 30, 200}>
           <ComposedChart
             data={topAuthors}
             layout="vertical"
@@ -932,7 +932,7 @@ export default function FacultyPubsDashboard() {
               tickFormatter={(s) => (s.length > 28 ? s.slice(0, 26) + "…" : s)}
             />
             <Tooltip content={<AuthorTooltip />} />
-            <Bar dataKey="count" barSize={4} radius={[0, 2, 2, 0]} fill="#e5e7eb" />
+            <Bar dataKey="count" barSize={6} radius={[0, 2, 2, 0]} fill="#e5e7eb" />
             <Scatter
               dataKey="count"
               isAnimationActive={false}
